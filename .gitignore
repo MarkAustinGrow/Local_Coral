@@ -121,3 +121,9 @@ coral-server/.gradletasknamecache
 coral-server/
 coraliser/
 langchain-coral-test/
+
+# OAuth tokens and credentials
+data/token.pickle
+*.pickle
+token.json
+credentials.json

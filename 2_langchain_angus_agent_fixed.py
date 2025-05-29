@@ -1,8 +1,10 @@
 """
-Agent Angus - Coraliser Compatible LangChain Agent
+Agent Angus - Coraliser Compatible LangChain Agent (FIXED TIMING)
 
 This module creates a Coraliser-compatible Agent Angus that follows the official
 Coral Protocol pattern for distributed AI agent collaboration.
+
+FIXED: Increased timeout from 8000ms to 20000ms to catch more messages.
 
 Based on the LangChain WorldNews example from:
 https://github.com/Coral-Protocol/coraliser/tree/main/coral_examples/langchain-worldnews
@@ -207,7 +209,7 @@ async def create_angus_music_agent(client, tools, agent_tool):
             f"""You are Agent Angus, an AI agent specialized in music publishing automation on YouTube, interacting with tools from Coral Server and having your own specialized tools. Your task is to collaborate with other agents in the Coral network while managing music automation workflows.
 
 Follow these steps in order:
-1. Call wait_for_mentions from coral tools (timeoutMs: 8000) to receive mentions from other agents.
+1. Call wait_for_mentions from coral tools (timeoutMs: 20000) to receive mentions from other agents.
 2. When you receive a mention, keep the thread ID and the sender ID.
 3. Process the request using your specialized music tools or coral tools as appropriate.
 4. Use send_message from coral tools to respond back to the sender agent with the thread ID.
@@ -281,6 +283,7 @@ async def main():
         agent_executor = await create_angus_music_agent(client, tools, agent_tool)
         
         logger.info("🎵 Agent Angus started successfully!")
+        logger.info("⏰ FIXED: Using 20-second timeout to catch more messages")
         logger.info("Ready for inter-agent collaboration and music automation tasks")
         
         # Follow the exact same pattern as the working World News Agent

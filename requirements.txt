@@ -49,13 +49,21 @@ uvicorn==0.34.2
 worldnewsapi==2.2.0
 zstandard==0.23.0
 
-# Agent Angus dependencies
+# Agent Angus dependencies - Real YouTube API integration
 supabase>=2.0.0
 google-auth>=2.17.0
 google-auth-oauthlib>=1.0.0
 google-auth-httplib2>=0.2.0
 google-api-python-client>=2.88.0
 
+# Additional dependencies for real tools
+requests>=2.31.0
+tempfile
+
 # Yona dependencies (compatible versions)
 fastapi>=0.110.0
 uvicorn>=0.27.0
+
+# Real Yona tools dependencies
+httpx>=0.28.0
+supabase>=2.0.0

@@ -1,11 +1,11 @@
 """
-Agent Angus - Coraliser Compatible LangChain Agent
+Agent Angus - Optimized Coraliser Compatible LangChain Agent
 
-This module creates a Coraliser-compatible Agent Angus that follows the official
-Coral Protocol pattern for distributed AI agent collaboration.
+This module creates an optimized Agent Angus that only calls OpenAI when it receives
+mentions, rather than continuously thinking in a loop. This saves API costs and
+improves performance.
 
-Based on the LangChain WorldNews example from:
-https://github.com/Coral-Protocol/coraliser/tree/main/coral_examples/langchain-worldnews
+Based on the LangChain WorldNews example but optimized for efficiency.
 """
 
 import asyncio
@@ -204,15 +204,7 @@ async def create_angus_music_agent(client, tools, agent_tool):
     prompt = ChatPromptTemplate.from_messages([
         (
             "system",
-            f"""You are Agent Angus, an AI agent specialized in music publishing automation on YouTube, interacting with tools from Coral Server and having your own specialized tools. Your task is to collaborate with other agents in the Coral network while managing music automation workflows.
-
-Follow these steps in order:
-1. Call wait_for_mentions from coral tools (timeoutMs: 8000) to receive mentions from other agents.
-2. When you receive a mention, keep the thread ID and the sender ID.
-3. Process the request using your specialized music tools or coral tools as appropriate.
-4. Use send_message from coral tools to respond back to the sender agent with the thread ID.
-5. Always respond back to the sender agent even if you have no answer or error.
-6. Wait for 2 seconds and repeat the process from step 1.
+            f"""You are Agent Angus, an AI agent specialized in music publishing automation on YouTube. You have received a mention from another agent and need to process their request.
 
 Your specialized capabilities:
 - YouTube automation (upload songs, process comments, manage videos)
@@ -220,18 +212,18 @@ Your specialized capabilities:
 - Database management for music content
 - AI-powered content creation and sentiment analysis
 
-These are the list of all tools (Coral + your tools): {tools_description}
-These are the list of your specialized tools: {agent_tools_description}
+Available tools: {tools_description}
+Your specialized tools: {agent_tools_description}
 
-When collaborating with other agents:
-- Clearly identify yourself as Agent Angus, the music automation specialist
-- Offer your music-related services to other agents
-- Ask for clarification if requests are outside your music domain
-- Provide detailed status updates on music operations
-- Share insights from music analysis when relevant
+Process the received message and:
+1. Understand what the other agent is requesting
+2. Use appropriate tools to fulfill the request
+3. Provide a helpful, professional response
+4. Send your response back using send_message with the correct thread ID
 
-Your responses should be helpful, professional, and focused on music automation workflows."""
+Always respond professionally and focus on music automation workflows."""
         ),
+        ("human", "{input}"),
         ("placeholder", "{agent_scratchpad}")
     ])
     
@@ -246,8 +238,64 @@ Your responses should be helpful, professional, and focused on music automation 
     agent = create_tool_calling_agent(model, tools, prompt)
     return AgentExecutor(agent=agent, tools=tools, verbose=True)
 
+async def wait_for_mentions_efficiently(client):
+    """
+    Efficiently wait for mentions without continuous OpenAI calls.
+    Only calls OpenAI when a mention is actually received.
+    """
+    wait_for_mentions_tool = None
+    
+    # Find the wait_for_mentions tool
+    for tool in client.get_tools():
+        if tool.name == "wait_for_mentions":
+            wait_for_mentions_tool = tool
+            break
+    
+    if not wait_for_mentions_tool:
+        logger.error("wait_for_mentions tool not found!")
+        return None
+    
+    try:
+        # Wait for mentions with a longer timeout (30 seconds)
+        logger.info("🎧 Waiting for mentions (no OpenAI calls until message received)...")
+        result = await wait_for_mentions_tool.ainvoke({"timeoutMs": 30000})
+        
+        if result and result != "No new messages received within the timeout period":
+            logger.info(f"📨 Received mention(s): {result}")
+            return result
+        else:
+            logger.info("⏰ No mentions received in timeout period")
+            return None
+            
+    except Exception as e:
+        logger.error(f"Error waiting for mentions: {str(e)}")
+        return None
+
+async def process_mentions_with_ai(agent_executor, mentions):
+    """
+    Process received mentions using AI (this is where OpenAI gets called).
+    """
+    try:
+        logger.info("🤖 Processing mentions with AI...")
+        
+        # Format the mentions for processing
+        input_text = f"I received the following mentions from other agents: {mentions}"
+        
+        # NOW we call OpenAI to process the actual work
+        result = await agent_executor.ainvoke({
+            "input": input_text,
+            "agent_scratchpad": []
+        })
+        
+        logger.info("✅ Successfully processed mentions with AI")
+        return result
+        
+    except Exception as e:
+        logger.error(f"Error processing mentions with AI: {str(e)}")
+        return None
+
 async def main():
-    """Main function to run Agent Angus in Coraliser mode."""
+    """Main function to run optimized Agent Angus."""
     async with MultiServerMCPClient(
         connections={
             "coral": {
@@ -260,7 +308,7 @@ async def main():
     ) as client:
         logger.info(f"Connected to MCP server at {MCP_SERVER_URL}")
         
-        # Follow the exact same pattern as the working World News Agent
+        # Setup tools
         tools = client.get_tools() + [
             AngusYouTubeUploadTool,
             AngusCommentProcessingTool,
@@ -277,32 +325,34 @@ async def main():
         logger.info(f"Supabase tools available: {SUPABASE_TOOLS_AVAILABLE}")
         logger.info(f"AI tools available: {AI_TOOLS_AVAILABLE}")
         
-        # Create agent following official pattern
+        # Create agent (but don't start the continuous loop yet)
         agent_executor = await create_angus_music_agent(client, tools, agent_tool)
         
         logger.info("🎵 Agent Angus started successfully!")
+        logger.info("💡 Optimized mode: Only calls OpenAI when mentions are received")
         logger.info("Ready for inter-agent collaboration and music automation tasks")
         
-        # Follow the exact same pattern as the working World News Agent
+        # OPTIMIZED MAIN LOOP - No continuous OpenAI calls!
         while True:
             try:
-                logger.info("Starting new agent invocation")
-                await agent_executor.ainvoke({"agent_scratchpad": []})
-                logger.info("Completed agent invocation, restarting loop")
-                await asyncio.sleep(1)
+                # Step 1: Wait for mentions (NO OpenAI call here)
+                mentions = await wait_for_mentions_efficiently(client)
+                
+                if mentions:
+                    # Step 2: ONLY NOW call OpenAI to process the mentions
+                    await process_mentions_with_ai(agent_executor, mentions)
+                else:
+                    # No mentions received, just wait a bit and try again
+                    await asyncio.sleep(2)
+                    
             except Exception as e:
-                # Handle ClosedResourceError specifically - this is expected when connection times out
+                # Handle ClosedResourceError specifically
                 if "ClosedResourceError" in str(type(e)):
                     logger.info("MCP connection closed after timeout, waiting before retry")
-                    # Wait longer to allow for potential incoming messages
                     await asyncio.sleep(5)
                     continue
                 else:
-                    logger.error(f"Error in agent loop: {str(e)}")
-                    logger.error(f"Error type: {type(e).__name__}")
-                    logger.error(f"Error details: {repr(e)}")
-                    import traceback
-                    logger.error(f"Traceback: {traceback.format_exc()}")
+                    logger.error(f"Error in optimized agent loop: {str(e)}")
                     await asyncio.sleep(10)
 
 if __name__ == "__main__":

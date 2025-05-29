@@ -88,6 +88,18 @@ This project showcases a sophisticated multi-agent AI system where specialized a
    $env:PATH = "C:\Program Files\Java\jdk-24\bin;" + $env:PATH
    ```
 
+5. **Set up YouTube Authentication** (for Agent Angus):
+   ```bash
+   # Run the YouTube authentication script
+   python youtube_auth_langchain.py
+   
+   # Follow the prompts to:
+   # 1. Visit the provided OAuth URL
+   # 2. Authorize the application
+   # 3. Enter the authorization code
+   # 4. This will create a token.pickle file for YouTube API access
+   ```
+
 ### Running the System
 
 1. **Start Coral Server** (in separate terminal):
@@ -128,11 +140,47 @@ WORLD_NEWS_API_KEY=your_worldnews_api_key_here
 YOUTUBE_API_KEY=your_youtube_api_key_here
 YOUTUBE_CLIENT_ID=your_youtube_client_id_here
 YOUTUBE_CLIENT_SECRET=your_youtube_client_secret_here
+YOUTUBE_CHANNEL_ID=your_youtube_channel_id_here
 
 # Supabase (required for Agent Angus)
 SUPABASE_URL=your_supabase_url_here
 SUPABASE_KEY=your_supabase_key_here
 ```
+
+## 🔐 YouTube Authentication Setup
+
+Agent Angus requires YouTube OAuth authentication to upload videos and process comments. Follow these steps:
+
+### 1. Get YouTube API Credentials
+1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+2. Create a new project or select existing one
+3. Enable YouTube Data API v3
+4. Create OAuth 2.0 credentials (Desktop Application)
+5. Download the credentials and extract:
+   - `YOUTUBE_CLIENT_ID`
+   - `YOUTUBE_CLIENT_SECRET`
+
+### 2. Run Authentication Script
+```bash
+python youtube_auth_langchain.py
+```
+
+This script will:
+- ✅ Check your `.env` file for YouTube credentials
+- 🔗 Provide an OAuth authorization URL
+- 📋 Prompt you to enter the authorization code
+- 💾 Save the authentication token as `token.pickle`
+
+### 3. Authentication Locations
+The script will try to save `token.pickle` in these locations:
+- `./data/token.pickle` (preferred)
+- `./token.pickle` (fallback)
+- Additional compatibility paths
+
+### 4. Troubleshooting YouTube Auth
+- **Missing credentials**: Ensure `YOUTUBE_CLIENT_ID` and `YOUTUBE_CLIENT_SECRET` are in `.env`
+- **Invalid token**: Delete `token.pickle` and re-run authentication
+- **Expired token**: The system will automatically refresh expired tokens
 
 ## 🧪 Testing the System
 
@@ -158,16 +206,17 @@ SUPABASE_KEY=your_supabase_key_here
 This repository represents a fully functional version after significant debugging and fixes:
 
 ### Agent Angus Transformation
-- ✅ **Fixed Supabase Connection**: Resolved Windows path issues and import errors
-- ✅ **Created Mock Dependencies**: Added YouTube and AI tool implementations
+- ✅ **Fixed Supabase Connection**: Resolved API compatibility issues with standard library
+- ✅ **Real Tool Integration**: Added working YouTube, AI, and database tools
 - ✅ **Fixed Agent Registration**: Updated to match working agent patterns
 - ✅ **Resolved Communication Issues**: Fixed Coral Protocol integration
-- ✅ **Handled Connection Lifecycle**: Proper error handling for timeouts
+- ✅ **YouTube Authentication**: Added proper OAuth flow for real API access
 
 ### Key Technical Improvements
 - **Tool Import Fix**: Changed from `langchain.tools` to `langchain_core.tools`
 - **Model Provider Fix**: Added `model_provider="openai"` parameter
 - **Connection Handling**: Improved `ClosedResourceError` management
+- **Supabase API Fix**: Updated to use standard Supabase Python library
 - **Tool Execution**: Fixed function call patterns within tools
 
 ## 📁 Project Structure
@@ -178,11 +227,14 @@ Local_Coral/
 ├── 1_langchain_world_news_agent.py   # World News Agent
 ├── 2_langchain_angus_agent.py        # Agent Angus (Music Automation)
 ├── 3_langchain_yona_agent.py         # Agent Yona (K-pop Creation)
+├── youtube_auth_langchain.py         # YouTube OAuth authentication
 ├── requirements.txt                  # Python dependencies
 ├── .env_sample                       # Environment template
 ├── codebase_documentation.md         # Detailed documentation
+├── data/                            # Data directory (token.pickle location)
 ├── tools/                           # Agent Angus tools
 │   ├── youtube_client_langchain.py  # YouTube API integration
+│   ├── youtube_tools.py             # YouTube LangChain tools
 │   ├── supabase_tools.py            # Database operations
 │   ├── ai_tools.py                  # AI-powered analysis
 │   └── openai_utils.py              # AI utilities
@@ -200,6 +252,7 @@ Local_Coral/
 - ✅ Thread creation and management works
 - ✅ Message routing to appropriate specialists
 - ✅ Graceful error handling and recovery
+- ✅ Real tool integration (YouTube, Supabase, AI)
 
 ## 🔍 Troubleshooting
 
@@ -216,6 +269,15 @@ Local_Coral/
 - Verify all required API keys are set in `.env`
 - Ensure API keys are valid and have proper permissions
 
+**YouTube authentication errors**:
+- Run `python youtube_auth_langchain.py` to re-authenticate
+- Check that `token.pickle` exists in `./data/` or current directory
+- Verify YouTube credentials in `.env` file
+
+**Supabase connection errors**:
+- Verify `SUPABASE_URL` and `SUPABASE_KEY` in `.env`
+- Check Supabase project is active and accessible
+
 **Agent timeout issues**:
 - Check agent logs for specific errors
 - Verify tool imports and dependencies
@@ -228,13 +290,17 @@ Local_Coral/
 - Message Routing and Thread Management
 - User Interface Agent (fully operational)
 - World News Agent (fully operational with real API)
-- Agent Angus (core functionality complete)
+- Agent Angus (fully operational with real tools)
+- YouTube Authentication System
+- Supabase Database Integration
+- AI-Powered Analysis Tools
 
 ### 🔄 Areas for Enhancement
-- Real YouTube API integration (currently using mock tools)
 - Enhanced error handling and monitoring
 - Additional agent capabilities
 - Performance optimization
+- Advanced YouTube analytics
+- Extended music generation features
 
 ## 🤝 Contributing
 
@@ -259,4 +325,5 @@ This project is open source and available under the MIT License.
 
 **Last Updated**: 2025-05-28  
 **System Status**: Fully Functional  
-**Agent Count**: 4 (All Operational)
+**Agent Count**: 4 (All Operational)  
+**Real Tool Integration**: ✅ Complete

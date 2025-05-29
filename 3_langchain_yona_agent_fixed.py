@@ -18,7 +18,7 @@ from dotenv import load_dotenv
 import urllib.parse
 from anyio import ClosedResourceError
 
-# Import REAL Yona tools
+# Import Yona tools
 from src.tools.yona_tools import (
     generate_song_concept, generate_lyrics, create_song,
     list_songs, get_song_by_id, search_songs, process_feedback

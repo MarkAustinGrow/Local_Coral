@@ -38,8 +38,14 @@ def _get_song_details_direct(song_id: str) -> Dict[str, Any]:
     try:
         from tools.supabase_tools import get_supabase_client
         supabase_client = get_supabase_client()
-        song_data = supabase_client.get_song_by_id(song_id)
-        return song_data if song_data else {}
+        
+        # Use standard Supabase API instead of custom get_song_by_id method
+        response = supabase_client.table("songs").select("*").eq("id", song_id).execute()
+        
+        if response.data and len(response.data) > 0:
+            return response.data[0]
+        else:
+            return {}
     except Exception as e:
         logger.error(f"Error getting song details: {str(e)}")
         return {}
@@ -50,8 +56,8 @@ def _update_song_status_direct(song_id: str, status: str, youtube_id: str = None
         from tools.supabase_tools import get_supabase_client
         supabase_client = get_supabase_client()
         
-        # Check if there are existing records for this song
-        existing_response = supabase_client.client.table("youtube").select("id").eq("song_id", song_id).execute()
+        # Check if there are existing records for this song - use standard API
+        existing_response = supabase_client.table("youtube").select("id").eq("song_id", song_id).execute()
         existing_records = existing_response.data if existing_response.data else []
         
         # Prepare update data
@@ -63,24 +69,24 @@ def _update_song_status_direct(song_id: str, status: str, youtube_id: str = None
         if youtube_id:
             update_data["youtube_id"] = youtube_id
             
-        # Get song title for the record
-        song_response = supabase_client.client.table("songs").select("title").eq("id", song_id).execute()
+        # Get song title for the record - use standard API
+        song_response = supabase_client.table("songs").select("title").eq("id", song_id).execute()
         if song_response.data and len(song_response.data) > 0:
             update_data["title"] = song_response.data[0].get("title", "Unknown")
         
         if existing_records:
-            # Update the first existing record
+            # Update the first existing record - use standard API
             record_id = existing_records[0].get('id')
-            supabase_client.client.table("youtube").update(update_data).eq("id", record_id).execute()
+            supabase_client.table("youtube").update(update_data).eq("id", record_id).execute()
             
-            # Delete any additional records
+            # Delete any additional records - use standard API
             if len(existing_records) > 1:
                 for record in existing_records[1:]:
                     delete_id = record.get('id')
-                    supabase_client.client.table("youtube").delete().eq("id", delete_id).execute()
+                    supabase_client.table("youtube").delete().eq("id", delete_id).execute()
         else:
-            # Insert new record
-            supabase_client.client.table("youtube").insert(update_data).execute()
+            # Insert new record - use standard API
+            supabase_client.table("youtube").insert(update_data).execute()
         
         return True
     except Exception as e:
@@ -300,7 +306,8 @@ def process_video_comments(video_id: str, song_id: str = None, max_replies: int 
             try:
                 from tools.supabase_tools import get_supabase_client
                 supabase_client = get_supabase_client()
-                response = supabase_client.client.table("youtube").select("song_id").eq("youtube_id", video_id).execute()
+                # Use standard API instead of .client
+                response = supabase_client.table("youtube").select("song_id").eq("youtube_id", video_id).execute()
                 if response.data and len(response.data) > 0:
                     song_id = response.data[0].get('song_id')
                 else:
@@ -325,7 +332,8 @@ def process_video_comments(video_id: str, song_id: str = None, max_replies: int 
         try:
             from tools.supabase_tools import get_supabase_client
             supabase_client = get_supabase_client()
-            response = supabase_client.client.table("feedback").select("*").eq("song_id", song_id).execute()
+            # Use standard API instead of .client
+            response = supabase_client.table("feedback").select("*").eq("song_id", song_id).execute()
             existing_feedback = response.data if response.data else []
             existing_comment_ids = set()
             if existing_feedback:
@@ -363,7 +371,8 @@ def process_video_comments(video_id: str, song_id: str = None, max_replies: int 
                         "comments": comment.get("content", ""),
                         "comment_id": comment.get("comment_id", "")
                     }
-                    supabase_client.client.table("feedback").insert(feedback_data).execute()
+                    # Use standard API instead of .client
+                    supabase_client.table("feedback").insert(feedback_data).execute()
                 except Exception as e:
                     logger.error(f"Error storing feedback: {str(e)}")
                 
