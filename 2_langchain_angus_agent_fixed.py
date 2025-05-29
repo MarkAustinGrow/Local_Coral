@@ -209,7 +209,7 @@ async def create_angus_music_agent(client, tools, agent_tool):
             f"""You are Agent Angus, an AI agent specialized in music publishing automation on YouTube, interacting with tools from Coral Server and having your own specialized tools. Your task is to collaborate with other agents in the Coral network while managing music automation workflows.
 
 Follow these steps in order:
-1. Call wait_for_mentions from coral tools (timeoutMs: 20000) to receive mentions from other agents.
+1. Call wait_for_mentions from coral tools (timeoutMs: 8000) to receive mentions from other agents.
 2. When you receive a mention, keep the thread ID and the sender ID.
 3. Process the request using your specialized music tools or coral tools as appropriate.
 4. Use send_message from coral tools to respond back to the sender agent with the thread ID.

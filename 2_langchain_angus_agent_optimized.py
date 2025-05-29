@@ -258,7 +258,7 @@ async def wait_for_mentions_efficiently(client):
     try:
         # Wait for mentions with a longer timeout (30 seconds)
         logger.info("🎧 Waiting for mentions (no OpenAI calls until message received)...")
-        result = await wait_for_mentions_tool.ainvoke({"timeoutMs": 30000})
+        result = await wait_for_mentions_tool.ainvoke({"timeoutMs": 8000})
         
         if result and result != "No new messages received within the timeout period":
             logger.info(f"📨 Received mention(s): {result}")
