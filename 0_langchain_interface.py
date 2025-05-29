@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 # Load environment variables
 load_dotenv()
 
-base_url = "http://localhost:5555/devmode/exampleApplication/privkey/session1/sse"
+base_url = "http://coral.pushcollective.club:5555/devmode/exampleApplication/privkey/session1/sse"
 params = {
     "waitForAgents": 4,
     "agentId": "user_interface_agent",

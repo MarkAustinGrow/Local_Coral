@@ -78,7 +78,7 @@ except ImportError as e:
 load_dotenv()
 
 # Configuration
-base_url = "http://localhost:5555/devmode/exampleApplication/privkey/session1/sse"
+base_url = "http://coral.pushcollective.club:5555/devmode/exampleApplication/privkey/session1/sse"
 params = {
     "waitForAgents": 4,
     "agentId": "angus_music_agent",
