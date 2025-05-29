@@ -83,8 +83,8 @@ class YouTubeClientLangChain:
         token_paths = [
             './data/token.pickle', 
             './token.pickle',
-            '/opt/Angus_Langchain/data/token.pickle',
-            '/opt/Angus_Langchain/token.pickle'
+            '/opt/coral-angus/data/token.pickle',
+            '/opt/coral-angus/token.pickle'
         ]
         token_path_used = None
         
