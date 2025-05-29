@@ -11,7 +11,7 @@ from langchain.tools import tool
 
 # Import our simplified YouTube client
 try:
-    from youtube_client_langchain import YouTubeClient
+    from tools.youtube_client_langchain import YouTubeClient
     YOUTUBE_CLIENT_AVAILABLE = True
 except ImportError:
     # Fallback for when the client is not available
