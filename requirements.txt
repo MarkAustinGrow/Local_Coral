@@ -58,7 +58,6 @@ google-api-python-client>=2.88.0
 
 # Additional dependencies for real tools
 requests>=2.31.0
-tempfile
 
 # Yona dependencies (compatible versions)
 fastapi>=0.110.0
