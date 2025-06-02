@@ -6,7 +6,22 @@ A fully functional 4-agent distributed AI system built on the Coral Protocol, de
 
 This project showcases a sophisticated multi-agent AI system where specialized agents discover each other, communicate securely, and collaborate on complex tasks. The system demonstrates real-world applications of distributed AI workflows.
 
-## 🤖 The Four Agents
+## 🌿 Repository Branches
+
+This repository has multiple branches for different deployment scenarios:
+
+### 1. `master` Branch
+- **Purpose**: Production deployment with Linode cloud support
+- **Features**: Active keepalive, cloud stability, cross-session communication
+- **Use Case**: When deploying to cloud infrastructure (Linode)
+
+### 2. `local-development` Branch
+- **Purpose**: Local development without cloud-specific code
+- **Features**: Pre-Linode optimizations, new agents (Marvin, Template News)
+- **Use Case**: When running the system locally for development
+- **Created From**: Commit before Linode migration (`834a96730e2bc01eacd09e61a285d81c741e1cd0`)
+
+## 🤖 The Four Core Agents
 
 ### 1. User Interface Agent (`0_langchain_interface.py`)
 - **Role**: System coordinator and user interaction point
@@ -30,6 +45,20 @@ This project showcases a sophisticated multi-agent AI system where specialized a
 - **Capabilities**: Song generation, lyrics creation, community interaction
 - **Agent ID**: `yona_agent`
 
+## 🆕 New Agents
+
+### 5. Marvin Agent (`Marvin_agent.py`) - Available in `local-development` branch
+- **Role**: AI character that generates witty, tech-focused tweets with dry humor
+- **Capabilities**: Social media content creation with personality
+- **Agent ID**: `marvin_agent`
+- **Character Traits**: Sarcastic, intelligent, witty, dry humor, tech-focused
+
+### 6. Template News Agent (`Template agent_news_agent.py`) - Available in `local-development` branch
+- **Role**: Alternative implementation of news functionality
+- **Capabilities**: WorldNewsAPI integration with different structure
+- **Agent ID**: `world_news_agent`
+- **External API**: WorldNewsAPI
+
 ## 🏗️ Architecture
 
 ```
@@ -45,11 +74,16 @@ This project showcases a sophisticated multi-agent AI system where specialized a
         │    Agent       │   │ News  │   │ (Music Auto) │
         │ (Coordinator)  │   │ Agent │   │              │
         └───────────────┘   └───────┘   └──────────────┘
-                    │
-            ┌───────▼───────┐
-            │ Agent Yona    │
-            │ (K-pop Star)  │
-            └───────────────┘
+                    │           │
+            ┌───────▼───────┐   │
+            │ Agent Yona    │   │
+            │ (K-pop Star)  │   │
+            └───────────────┘   │
+                                ▼
+                        ┌───────────────┐
+                        │ Marvin Agent  │
+                        │ (Social Media)│
+                        └───────────────┘
 ```
 
 ## 🚀 Quick Start
@@ -67,7 +101,16 @@ This project showcases a sophisticated multi-agent AI system where specialized a
    cd Local_Coral
    ```
 
-2. **Set up Python environment**:
+2. **Choose the appropriate branch**:
+   ```bash
+   # For local development (no cloud-specific code)
+   git checkout local-development
+   
+   # For cloud deployment with Linode support
+   git checkout master
+   ```
+
+3. **Set up Python environment**:
    ```bash
    python -m venv venv
    venv\Scripts\activate  # Windows
@@ -76,19 +119,19 @@ This project showcases a sophisticated multi-agent AI system where specialized a
    pip install -r requirements.txt
    ```
 
-3. **Configure environment variables**:
+4. **Configure environment variables**:
    ```bash
    cp .env_sample .env
    # Edit .env with your API keys
    ```
 
-4. **Set Java environment** (Windows):
+5. **Set Java environment** (Windows):
    ```bash
    $env:JAVA_HOME = "C:\Program Files\Java\jdk-24"
    $env:PATH = "C:\Program Files\Java\jdk-24\bin;" + $env:PATH
    ```
 
-5. **Set up YouTube Authentication** (for Agent Angus):
+6. **Set up YouTube Authentication** (for Agent Angus):
    ```bash
    # Run the YouTube authentication script
    python youtube_auth_langchain.py
@@ -113,16 +156,20 @@ This project showcases a sophisticated multi-agent AI system where specialized a
 2. **Start the agents** (each in separate terminals):
    ```bash
    # Terminal 1 - World News Agent
-   python 1_langchain_world_news_agent.py
+   python 1_langchain_world_news_agent_optimized.py
 
    # Terminal 2 - Agent Angus
-   python 2_langchain_angus_agent.py
+   python 2_langchain_angus_agent_optimized.py
 
    # Terminal 3 - Agent Yona
-   python 3_langchain_yona_agent.py
+   python 3_langchain_yona_agent_optimized.py
 
    # Terminal 4 - User Interface (main interaction)
-   python 0_langchain_interface.py
+   python 0_langchain_interface_smart_timeout.py
+   
+   # Optional (local-development branch only):
+   # Terminal 5 - Marvin Agent
+   python Marvin_agent.py
    ```
 
 ## 🔧 Environment Variables
@@ -201,6 +248,11 @@ The script will try to save `token.pickle` in these locations:
 - "Generate lyrics for a summer song"
 - "Show me your song catalog"
 
+**Social Media** (Marvin Agent - local-development branch only):
+- "Generate a tweet about AI ethics"
+- "Create a witty post about programming"
+- "Make a sarcastic observation about technology"
+
 ## 🛠️ Major Fixes Applied
 
 This repository represents a fully functional version after significant debugging and fixes:
@@ -223,31 +275,35 @@ This repository represents a fully functional version after significant debuggin
 
 ```
 Local_Coral/
-├── 0_langchain_interface.py          # User Interface Agent
-├── 1_langchain_world_news_agent.py   # World News Agent
-├── 2_langchain_angus_agent.py        # Agent Angus (Music Automation)
-├── 3_langchain_yona_agent.py         # Agent Yona (K-pop Creation)
-├── youtube_auth_langchain.py         # YouTube OAuth authentication
-├── requirements.txt                  # Python dependencies
-├── .env_sample                       # Environment template
-├── codebase_documentation.md         # Detailed documentation
-├── data/                            # Data directory (token.pickle location)
-├── tools/                           # Agent Angus tools
-│   ├── youtube_client_langchain.py  # YouTube API integration
-│   ├── youtube_tools.py             # YouTube LangChain tools
-│   ├── supabase_tools.py            # Database operations
-│   ├── ai_tools.py                  # AI-powered analysis
-│   └── openai_utils.py              # AI utilities
-├── src/tools/                       # Yona's specialized tools
-│   ├── yona_tools.py               # Music creation tools
-│   └── coral_tools.py              # Community interaction tools
-└── coral-server/                   # Coral Protocol server (Kotlin)
+├── 0_langchain_interface.py                # User Interface Agent (basic)
+├── 0_langchain_interface_enhanced.py       # Enhanced with retry logic
+├── 0_langchain_interface_smart_timeout.py  # Smart timeout management
+├── 1_langchain_world_news_agent_optimized.py # World News Agent
+├── 2_langchain_angus_agent_optimized.py    # Agent Angus (Music Automation)
+├── 3_langchain_yona_agent_optimized.py     # Agent Yona (K-pop Creation)
+├── Marvin_agent.py                         # Marvin Agent (local-development branch)
+├── Template agent_news_agent.py            # Template News Agent (local-development branch)
+├── youtube_auth_langchain.py               # YouTube OAuth authentication
+├── requirements.txt                        # Python dependencies
+├── .env_sample                             # Environment template
+├── codebase_documentation.md               # Detailed documentation
+├── data/                                  # Data directory (token.pickle location)
+├── tools/                                 # Agent Angus tools
+│   ├── youtube_client_langchain.py        # YouTube API integration
+│   ├── youtube_tools.py                   # YouTube LangChain tools
+│   ├── supabase_tools.py                  # Database operations
+│   ├── ai_tools.py                        # AI-powered analysis
+│   └── openai_utils.py                    # AI utilities
+├── src/tools/                             # Yona's specialized tools
+│   ├── yona_tools.py                     # Music creation tools
+│   └── coral_tools.py                    # Community interaction tools
+└── coral-server/                         # Coral Protocol server (Kotlin)
 ```
 
 ## 🎯 Success Metrics
 
-- ✅ All 4 agents register successfully
-- ✅ Agent discovery works (`list_agents` shows 4 agents)
+- ✅ All agents register successfully
+- ✅ Agent discovery works (`list_agents` shows all agents)
 - ✅ Inter-agent communication functional
 - ✅ Thread creation and management works
 - ✅ Message routing to appropriate specialists
@@ -262,8 +318,8 @@ Local_Coral/
 - Ensure Coral Server is running on localhost:5555
 
 **"No agents found"**:
-- Verify all 4 agents are running
-- Check that `waitForAgents: 4` is configured correctly
+- Verify all agents are running
+- Check that `waitForAgents` is configured correctly
 
 **API Key errors**:
 - Verify all required API keys are set in `.env`
@@ -291,6 +347,8 @@ Local_Coral/
 - User Interface Agent (fully operational)
 - World News Agent (fully operational with real API)
 - Agent Angus (fully operational with real tools)
+- Agent Yona (fully operational with music creation)
+- Marvin Agent (social media content creation)
 - YouTube Authentication System
 - Supabase Database Integration
 - AI-Powered Analysis Tools
@@ -323,7 +381,7 @@ This project is open source and available under the MIT License.
 
 ---
 
-**Last Updated**: 2025-05-28  
+**Last Updated**: 2025-05-30  
 **System Status**: Fully Functional  
-**Agent Count**: 4 (All Operational)  
+**Agent Count**: 6 (4 Core + 2 New)  
 **Real Tool Integration**: ✅ Complete
