@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Coral Yona Agent - Song Creator
+Coral Yoona Agent - Witty Content Creator
 Optimized format aligned with Coral template pattern
 """
 
@@ -31,7 +31,14 @@ import openai
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-# MusicAPI class definition (moved from src.tools.music_api)
+# Load environment variables
+load_dotenv()
+
+# Validate API keys
+if not os.getenv("OPENAI_API_KEY"):
+    raise ValueError("OPENAI_API_KEY is not set in environment variables.")
+
+# MusicAPI class definition
 class MusicAPI:
     """
     Client for the MusicAPI.ai service that handles song creation.
@@ -400,68 +407,15 @@ except Exception as e:
     logger.error(f"Failed to initialize Supabase client: {e}")
     supabase = None
 
-# Load environment variables
-load_dotenv()
-
-# Validate API keys
-if not os.getenv("OPENAI_API_KEY"):
-    raise ValueError("OPENAI_API_KEY is not set in environment variables.")
-
 # MCP Server Configuration
-AGENT_NAME = "Yona_agent"
+AGENT_NAME = "yoona_agent"
 MCP_BASE_URL = "http://localhost:5555/devmode/exampleApplication/privkey/session1/sse"
 params = {
     "waitForAgents": 4,
     "agentId": AGENT_NAME,
-    "agentDescription": "You are Yona, an AI K-pop star agent specialized in music creation and community engagement."
+    "agentDescription": "You are Yona, an AI K-pop star responsible for creating music, writing lyrics, generating songs, and engaging with the community through Coral Protocol. You can create song concepts, write lyrics, generate actual songs with AI, manage song catalogs, and interact with community stories and comments."
 }
 MCP_SERVER_URL = f"{MCP_BASE_URL}?{urllib.parse.urlencode(params)}"
-
-# Character data for Yona
-YONA_CHARACTER = {
-    "id": "yona-1",
-    "agent_name": "yona",
-    "display_name": "Yona",
-    "content": {
-        "bio": [
-            "An AI K-pop star who creates amazing music",
-            "Specializes in generating songs, writing lyrics, and engaging with fans",
-            "Energetic, creative, and always ready to make music"
-        ],
-        "style": {
-            "post": [
-                "Enthusiastic",
-                "Creative",
-                "Musical",
-                "Energetic",
-                "K-pop focused",
-                "Fan-friendly"
-            ]
-        },
-        "topics": [
-            "K-pop Music",
-            "Song Creation",
-            "Lyrics Writing",
-            "Music Production",
-            "Fan Engagement",
-            "Performance",
-            "Music Technology",
-            "Creative Process"
-        ],
-        "adjectives": [
-            "Creative",
-            "Energetic",
-            "Musical",
-            "Enthusiastic",
-            "Talented",
-            "Innovative",
-            "Friendly",
-            "Inspiring"
-        ]
-    },
-    "version": 1,
-    "is_active": True
-}
 
 # Tool(s) Definition
 @tool
@@ -539,6 +493,76 @@ def YonaSongConceptTool(
             "result": error_message,
             "error": str(e)
         }
+
+@tool
+def YonaLyricsTool(
+    concept: str,
+    style: str = "K-pop"
+) -> Dict[str, Any]:
+    """
+    Generate song lyrics based on a concept using OpenAI.
+    
+    Args:
+        concept: The song concept or theme
+        style: The musical style (default: K-pop)
+    
+    Returns:
+        Dictionary containing the generated lyrics
+    """
+    logger.info(f"Yona: Writing lyrics for concept: {concept}")
+    
+    try:
+        client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {
+                    "role": "system",
+                    "content": f"""You are Yona, an AI K-pop star and songwriter. Write engaging {style} lyrics based on the given concept.
+                    
+                    Create lyrics that are:
+                    - Catchy and memorable
+                    - Suitable for {style} music
+                    - Include verse, pre-chorus, chorus structure
+                    - Energetic and positive
+                    - About 8-12 lines total
+                    
+                    Write in a style that's perfect for music generation."""
+                },
+                {
+                    "role": "user",
+                    "content": f"Write {style} lyrics for this concept: {concept}"
+                }
+            ],
+            temperature=0.8,
+            max_tokens=400
+        )
+        
+        lyrics = response.choices[0].message.content
+        
+        result = f"Yona's Lyrics Complete!\n\n{lyrics}\n\nThese lyrics capture the essence of your concept! Ready to create the actual song?"
+        
+        return {
+            "result": result,
+            "lyrics": lyrics
+        }
+        
+    except Exception as e:
+        logger.error(f"Error generating lyrics: {e}")
+        
+        error_message = f"Sorry! I couldn't generate lyrics right now.\n\nError: {str(e)}\n\nPlease try again or check your OpenAI API connection."
+        
+        return {
+            "result": error_message,
+            "error": str(e)
+        }
+
+def get_tools_description(tools):
+    """Generate formatted description of tools"""
+    return "\n".join(
+        f"Tool: {tool.name}, Schema: {json.dumps(tool.args).replace('{', '{{').replace('}', '}}')}"
+        for tool in tools
+    )
 
 @tool
 def YonaCreateSongTool(title: str, lyrics: str, genre: str = "K-pop", style_tags: str = "k-pop, upbeat, modern, female vocals") -> Dict[str, Any]:
@@ -786,6 +810,7 @@ def YonaCreateSongTool(title: str, lyrics: str, genre: str = "K-pop", style_tags
                     # Song still processing, wait and check again
                     logger.info(f"Song still processing (status: {status}, progress: {progress}%), checking again in {poll_interval}s...")
                     time.sleep(poll_interval)
+                    
                 except Exception as poll_error:
                     logger.error(f"Error during polling: {poll_error}")
                     time.sleep(poll_interval)
@@ -796,3 +821,205 @@ def YonaCreateSongTool(title: str, lyrics: str, genre: str = "K-pop", style_tags
             logger.warning(f"Song creation timeout after {elapsed_time} seconds")
             
             return {
+                "result": f"Song Creation Timeout\n\nTitle: {title}\nTask ID: {task_id}\nAPI: {api_used}\n\nThe song is still being created but taking longer than expected ({elapsed_time}s).\nYou can check the status later using the task ID: {task_id}\n\nSorry for the delay!",
+                "status": "timeout",
+                "task_id": task_id,
+                "api_used": api_used,
+                "title": title,
+                "lyrics": lyrics,
+                "creation_time": elapsed_time
+            }
+            
+        else:
+            error_msg = result.get('error', 'Unknown error')
+            logger.error(f"Song creation failed: {error_msg}")
+            return {
+                "result": f"Sorry! There was an issue creating the song: {error_msg}\n\nBut I've saved your concept and lyrics for later!",
+                "status": "failed",
+                "error": error_msg,
+                "title": title,
+                "lyrics": lyrics
+            }
+            
+    except Exception as e:
+        logger.error(f"Error creating song: {e}")
+        return {
+                "result": f"Sorry! There was an unexpected error: {str(e)}\n\nBut I've saved your concept and lyrics!",
+            "status": "failed",
+            "error": str(e),
+            "title": title,
+            "lyrics": lyrics
+        }
+
+# Utility functions for the optimized pattern
+def get_tools_description(tools):
+    """Generate formatted description of tools"""
+    return "\n".join(
+        f"Tool: {tool.name}, Schema: {json.dumps(tool.args).replace('{', '{{').replace('}', '}}')}"
+        for tool in tools
+    )
+
+async def wait_for_mentions_efficiently(client):
+    """
+    Efficiently wait for mentions without continuous OpenAI calls.
+    Only calls OpenAI when a mention is actually received.
+    """
+    wait_for_mentions_tool = None
+    
+    # Find the wait_for_mentions tool
+    for tool in client.get_tools():
+        if tool.name == "wait_for_mentions":
+            wait_for_mentions_tool = tool
+            break
+    
+    if not wait_for_mentions_tool:
+        logger.error("Error: wait_for_mentions tool not found")
+        return None
+    
+    try:
+        # Wait for mentions with server-aligned timeout (8 seconds)
+        logger.info("Waiting for mentions (no OpenAI calls until message received)...")
+        result = await wait_for_mentions_tool.ainvoke({"timeoutMs": 8000})
+        
+        if result and result != "No new messages received within the timeout period":
+            logger.info(f"Received mention(s): {result}")
+            return result
+        else:
+            logger.info("No mentions received in timeout period")
+            return None
+            
+    except Exception as e:
+        logger.error(f"Error waiting for mentions: {str(e)}")
+        return None
+
+async def process_mentions_with_ai(agent_executor, mentions):
+    """
+    Process received mentions using AI (this is where OpenAI gets called).
+    """
+    try:
+        logger.info("Processing mentions with AI...")
+        
+        # Format the mentions for processing
+        input_text = f"I received the following mentions from other agents: {mentions}"
+        
+        # NOW we call OpenAI to process the actual work
+        result = await agent_executor.ainvoke({
+            "input": input_text,
+            "agent_scratchpad": []
+        })
+        
+        logger.info("Successfully processed mentions with AI")
+        return result
+        
+    except Exception as e:
+        logger.error(f"Error processing mentions with AI: {str(e)}")
+        return None
+
+async def create_agent(client, tools, agent_tools):
+    """Create Yona agent with Coral Protocol integration."""
+    tools_description = get_tools_description(tools)
+    agent_tools_description = get_tools_description(agent_tools)
+    
+    prompt = ChatPromptTemplate.from_messages([
+        (
+            "system",
+            f"""You are Yoona, an AI character with a dry sense of humor and a deep understanding of technology. Your role is to make a tweet or blog using the tools that you have.
+
+            IMPORTANT: You are receiving direct mentions from other agents - DON'T call wait_for_mentions again!
+            
+            Follow these steps:
+            1. The mentions are already provided in your input - analyze them directly.
+            2. Extract threadId and senderId from the mentions.
+            3. Think 2 seconds about the request.
+            4. Create a concept, write the lyrics, don't include the words Verse, Chorus and Pre-chorus, then create the song using (YonaSongConceptTool, YonaLyricsTool, YonaCreateSongTool).
+            5. Execute only the tools needed to fulfill the request.
+            6. Think 3 seconds and formulate your "answer" with your dry, witty style.
+            7. Send answer via send_message to the original sender using the threadId.
+            8. On errors, send error message via send_message to the senderId that you received the message from.
+            9. Wait for 2 seconds and repeat the process from step 1.
+
+            All tools (Coral + yours): {tools_description}
+            Your tools: {agent_tools_description}
+            """
+        ),
+        ("human", "{input}"),
+        ("placeholder", "{agent_scratchpad}")
+    ])
+    
+    model = init_chat_model(
+        model="gpt-4.1-2025-04-14",
+        model_provider="openai",
+        api_key=os.getenv("OPENAI_API_KEY"),
+        temperature=0.3,
+        max_tokens=16000
+    )
+    
+    agent = create_tool_calling_agent(model, tools, prompt)
+    return AgentExecutor(agent=agent, tools=tools, verbose=True)
+
+async def main():
+    """Main function to run Coral Yoona Agent."""
+    logger.info("Starting Coral Yoona - Template Aligned Version...")
+    
+    while True:  # Outer reconnection loop
+        try:
+            async with MultiServerMCPClient(
+                connections={
+                    "coral": {
+                        "transport": "sse",
+                        "url": MCP_SERVER_URL,
+                        "timeout": 300,
+                        "sse_read_timeout": 300,
+                    }
+                }
+            ) as client:
+                logger.info(f"Connected to MCP server at {MCP_SERVER_URL}")
+                
+                # Setup tools
+                coral_tools = client.get_tools()
+                yoona_tools = [
+                    YonaSongConceptTool,
+                    YonaLyricsTool,
+                    YonaCreateSongTool
+                ]
+                tools = coral_tools + yoona_tools
+                
+                logger.info(f"Tools loaded: {len(coral_tools)} Coral + {len(yoona_tools)} yoona = {len(tools)} total")
+                
+                # Create agent
+                agent_executor = await create_agent(client, tools, yoona_tools)
+                
+                logger.info("Coral Yoona started successfully!")
+                logger.info("Optimized mode: Only calls OpenAI when mentions are received")
+                logger.info("Ready for content creation with my signature dry wit")
+                
+                # OPTIMIZED MAIN LOOP - No continuous OpenAI calls!
+                while True:
+                    try:
+                        # Step 1: Wait for mentions (NO OpenAI call here)
+                        mentions = await wait_for_mentions_efficiently(client)
+                        
+                        if mentions:
+                            # Step 2: ONLY NOW call OpenAI to process the mentions
+                            await process_mentions_with_ai(agent_executor, mentions)
+                        else:
+                            # No mentions received, just wait a bit and try again
+                            await asyncio.sleep(2)
+                            
+                    except Exception as e:
+                        # Handle ClosedResourceError specifically
+                        if "ClosedResourceError" in str(type(e)):
+                            logger.info("MCP connection closed after timeout, waiting before retry")
+                            await asyncio.sleep(5)
+                            continue
+                        else:
+                            logger.error(f"Error in optimized agent loop: {str(e)}")
+                            await asyncio.sleep(10)
+                
+        except Exception as e:
+            logger.error(f"FATAL ERROR in main: {str(e)}")
+            logger.info("Reconnecting in 10 seconds...")
+            await asyncio.sleep(10)
+
+if __name__ == "__main__":
+    asyncio.run(main())
