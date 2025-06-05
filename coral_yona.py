@@ -557,13 +557,6 @@ def YonaLyricsTool(
             "error": str(e)
         }
 
-def get_tools_description(tools):
-    """Generate formatted description of tools"""
-    return "\n".join(
-        f"Tool: {tool.name}, Schema: {json.dumps(tool.args).replace('{', '{{').replace('}', '}}')}"
-        for tool in tools
-    )
-
 @tool
 def YonaCreateSongTool(title: str, lyrics: str, genre: str = "K-pop", style_tags: str = "k-pop, upbeat, modern, female vocals") -> Dict[str, Any]:
     """
@@ -851,7 +844,6 @@ def YonaCreateSongTool(title: str, lyrics: str, genre: str = "K-pop", style_tags
             "lyrics": lyrics
         }
 
-# Utility functions for the optimized pattern
 def get_tools_description(tools):
     """Generate formatted description of tools"""
     return "\n".join(
