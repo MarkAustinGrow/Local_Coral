@@ -216,7 +216,7 @@ async def create_agent(client, tools, agent_tools):
     ])
 
     model = init_chat_model(
-        model="gpt-4o-mini",
+        model="gpt-4.1-2025-04-14",
         model_provider="openai",
         api_key=os.getenv("OPENAI_API_KEY"),
         temperature=0.3,

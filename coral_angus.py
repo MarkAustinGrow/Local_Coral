@@ -230,7 +230,8 @@ class YouTubeClientLangChain:
                     logger.info(f"Uploaded {int(status.progress() * 100)}%")
             
             # Make sure to close the media file
-            media._fd.close()
+            if hasattr(media, "stream") and media.stream():
+                media.stream().close()
             
             logger.info(f"Video upload complete: {response['id']}")
             return response["id"]
@@ -829,7 +830,7 @@ async def create_agent(client, tools, agent_tools):
     ])
     
     model = init_chat_model(
-        model="gpt-4o-mini",
+        model="gpt-4.1-2025-04-14",
         model_provider="openai",
         api_key=os.getenv("OPENAI_API_KEY"),
         temperature=0.3,
