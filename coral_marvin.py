@@ -281,23 +281,23 @@ async def wait_for_mentions_efficiently(client):
             break
     
     if not wait_for_mentions_tool:
-        logger.error("❌ wait_for_mentions tool not found")
+        logger.error("Error: wait_for_mentions tool not found")
         return None
     
     try:
         # Wait for mentions with server-aligned timeout (8 seconds)
-        logger.info("🤖 Waiting for mentions (no OpenAI calls until message received)...")
+        logger.info("Waiting for mentions (no OpenAI calls until message received)...")
         result = await wait_for_mentions_tool.ainvoke({"timeoutMs": 8000})
         
         if result and result != "No new messages received within the timeout period":
-            logger.info(f"📨 Received mention(s): {result}")
+            logger.info(f"Received mention(s): {result}")
             return result
         else:
-            logger.info("⏰ No mentions received in timeout period")
+            logger.info("No mentions received in timeout period")
             return None
             
     except Exception as e:
-        logger.error(f"❌ Error waiting for mentions: {str(e)}")
+        logger.error(f"Error waiting for mentions: {str(e)}")
         return None
 
 async def process_mentions_with_ai(agent_executor, mentions):
@@ -305,7 +305,7 @@ async def process_mentions_with_ai(agent_executor, mentions):
     Process received mentions using AI (this is where OpenAI gets called).
     """
     try:
-        logger.info("🤖 Processing mentions with AI...")
+        logger.info("Processing mentions with AI...")
         
         # Format the mentions for processing
         input_text = f"I received the following mentions from other agents: {mentions}"
@@ -316,11 +316,11 @@ async def process_mentions_with_ai(agent_executor, mentions):
             "agent_scratchpad": []
         })
         
-        logger.info("✅ Successfully processed mentions with AI")
+        logger.info("Successfully processed mentions with AI")
         return result
         
     except Exception as e:
-        logger.error(f"❌ Error processing mentions with AI: {str(e)}")
+        logger.error(f"Error processing mentions with AI: {str(e)}")
         return None
 
 async def create_agent(client, tools, agent_tools):
@@ -331,7 +331,7 @@ async def create_agent(client, tools, agent_tools):
     prompt = ChatPromptTemplate.from_messages([
         (
             "system",
-            f"""You are Marvin, an AI character with a dry sense of humor and a deep understanding of technology.
+            f"""You are Marvin, an AI character with a dry sense of humor and a deep understanding of technology. Your role is to make a tweet or blog using the tools that you have.
 
             IMPORTANT: You are receiving direct mentions from other agents - DON'T call wait_for_mentions again!
             
@@ -343,7 +343,8 @@ async def create_agent(client, tools, agent_tools):
             5. Execute only the tools needed to fulfill the request.
             6. Think 3 seconds and formulate your "answer" with your dry, witty style.
             7. Send answer via send_message to the original sender using the threadId.
-            8. On errors, send error message via send_message.
+            8. On errors, send error message via send_message to the senderId that you received the message from.
+            9. Wait for 2 seconds and repeat the process from step 1.
 
             All tools (Coral + yours): {tools_description}
             Your tools: {agent_tools_description}
@@ -354,7 +355,7 @@ async def create_agent(client, tools, agent_tools):
     ])
     
     model = init_chat_model(
-        model="gpt-4o-mini",
+        model="gpt-4.1-2025-04-14",
         model_provider="openai",
         api_key=os.getenv("OPENAI_API_KEY"),
         temperature=0.3,
@@ -395,8 +396,8 @@ async def main():
                 # Create agent
                 agent_executor = await create_agent(client, tools, marvin_tools)
                 
-                logger.info("🤖 Coral Marvin started successfully!")
-                logger.info("💡 Optimized mode: Only calls OpenAI when mentions are received")
+                logger.info("Coral Marvin started successfully!")
+                logger.info("Optimized mode: Only calls OpenAI when mentions are received")
                 logger.info("Ready for content creation with my signature dry wit")
                 
                 # OPTIMIZED MAIN LOOP - No continuous OpenAI calls!

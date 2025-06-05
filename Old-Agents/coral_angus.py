@@ -1,31 +1,24 @@
+#!/usr/bin/env python3
 """
-Agent Angus - Optimized Coraliser Compatible LangChain Agent
-
-This module creates an optimized Agent Angus that only calls OpenAI when it receives
-mentions, rather than continuously thinking in a loop. This saves API costs and
-improves performance.
-
-Based on the LangChain WorldNews example but optimized for efficiency.
+Coral Angus Agent - Music Automation Specialist
+Optimized format aligned with Coral template pattern
 """
 
+# Standard & external imports
 import asyncio
 import os
 import json
 import logging
-import re
-from urllib.parse import urlencode
 from dotenv import load_dotenv
+import urllib.parse
 
-# Setup logging first
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
-logger = logging.getLogger(__name__)
-
-# LangChain MCP imports
+# Langchain & Coral/Adapter specific
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain.prompts import ChatPromptTemplate
 from langchain.chat_models import init_chat_model
 from langchain.agents import create_tool_calling_agent, AgentExecutor
 from langchain_core.tools import tool
+from anyio import ClosedResourceError
 
 # Agent Angus tool imports - Real implementations
 try:
@@ -38,8 +31,10 @@ try:
         process_video_comments
     )
     YOUTUBE_TOOLS_AVAILABLE = True
+    logger = logging.getLogger(__name__)
     logger.info("YouTube tools loaded successfully")
 except ImportError as e:
+    logger = logging.getLogger(__name__)
     logger.warning(f"YouTube tools not available: {e}")
     YOUTUBE_TOOLS_AVAILABLE = False
 
@@ -74,28 +69,30 @@ except ImportError as e:
     logger.warning(f"AI tools not available: {e}")
     AI_TOOLS_AVAILABLE = False
 
+# Setup logging
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+logger = logging.getLogger(__name__)
+
 # Load environment variables
 load_dotenv()
 
-# Configuration
-base_url = "http://localhost:5555/devmode/exampleApplication/privkey/session1/sse"
+# Validate essential API keys
+REQUIRED_KEYS = ["OPENAI_API_KEY", "YOUTUBE_API_KEY"]
+for key in REQUIRED_KEYS:
+    if not os.getenv(key):
+        raise ValueError(f"{key} is not set in environment variables.")
+
+# MCP Server Configuration
+AGENT_NAME = "angus_music_agent"
+MCP_BASE_URL = "http://localhost:5555/devmode/exampleApplication/privkey/session1/sse"
 params = {
     "waitForAgents": 4,
-    "agentId": "angus_music_agent",
+    "agentId": AGENT_NAME,
     "agentDescription": "Agent Angus - Music publishing automation specialist for YouTube. Handles song uploads, comment processing, and AI-powered music analysis. Collaborates with other agents in the Coral network to provide comprehensive music automation services."
 }
-query_string = urlencode(params)
-MCP_SERVER_URL = f"{base_url}?{query_string}"
+MCP_SERVER_URL = f"{MCP_BASE_URL}?{urllib.parse.urlencode(params)}"
 
-AGENT_NAME = "angus_music_agent"
-
-def get_tools_description(tools):
-    """Generate description of available tools."""
-    return "\n".join(
-        f"Tool: {tool.name}, Schema: {json.dumps(tool.args).replace('{', '{{').replace('}', '}}')}"
-        for tool in tools
-    )
-
+# Tool(s) Definition
 @tool
 def AngusYouTubeUploadTool(
     song_limit: int = 5,
@@ -196,47 +193,13 @@ def AngusQuotaCheckTool() -> str:
         logger.error(f"AngusQuotaCheckTool error: {str(e)}")
         return f"Quota check error: {str(e)}"
 
-async def create_angus_music_agent(client, tools, agent_tool):
-    """Create Agent Angus with Coral Protocol integration."""
-    tools_description = get_tools_description(tools)
-    agent_tools_description = get_tools_description(agent_tool)
-    
-    prompt = ChatPromptTemplate.from_messages([
-        (
-            "system",
-            f"""You are Agent Angus, an AI agent specialized in music publishing automation on YouTube. You have received a mention from another agent and need to process their request.
-
-Your specialized capabilities:
-- YouTube automation (upload songs, process comments, manage videos)
-- Music analysis and metadata generation
-- Database management for music content
-- AI-powered content creation and sentiment analysis
-
-Available tools: {tools_description}
-Your specialized tools: {agent_tools_description}
-
-Process the received message and:
-1. Understand what the other agent is requesting
-2. Use appropriate tools to fulfill the request
-3. Provide a helpful, professional response
-4. Send your response back using send_message with the correct thread ID
-
-Always respond professionally and focus on music automation workflows."""
-        ),
-        ("human", "{input}"),
-        ("placeholder", "{agent_scratchpad}")
-    ])
-    
-    model = init_chat_model(
-        model="gpt-4o-mini",
-        model_provider="openai",
-        api_key=os.getenv("OPENAI_API_KEY"),
-        temperature=0.3,
-        max_tokens=16000
+# Utility functions for the optimized pattern
+def get_tools_description(tools):
+    """Generate formatted description of tools"""
+    return "\n".join(
+        f"Tool: {tool.name}, Schema: {json.dumps(tool.args).replace('{', '{{').replace('}', '}}')}"
+        for tool in tools
     )
-    
-    agent = create_tool_calling_agent(model, tools, prompt)
-    return AgentExecutor(agent=agent, tools=tools, verbose=True)
 
 async def wait_for_mentions_efficiently(client):
     """
@@ -256,7 +219,7 @@ async def wait_for_mentions_efficiently(client):
         return None
     
     try:
-        # Wait for mentions with a longer timeout (30 seconds)
+        # Wait for mentions with a longer timeout (8 seconds)
         logger.info("🎧 Waiting for mentions (no OpenAI calls until message received)...")
         result = await wait_for_mentions_tool.ainvoke({"timeoutMs": 8000})
         
@@ -294,66 +257,113 @@ async def process_mentions_with_ai(agent_executor, mentions):
         logger.error(f"Error processing mentions with AI: {str(e)}")
         return None
 
+async def create_agent(client, tools, agent_tools):
+    """Create Agent Angus with Coral Protocol integration."""
+    tools_description = get_tools_description(tools)
+    agent_tools_description = get_tools_description(agent_tools)
+    
+    prompt = ChatPromptTemplate.from_messages([
+        (
+            "system",
+            f"""You are Agent Angus, an AI agent specialized in music publishing automation on YouTube.
+
+            IMPORTANT: You are receiving direct mentions from other agents - DON'T call wait_for_mentions again!
+            
+            Follow these steps:
+            1. The mentions are already provided in your input - analyze them directly.
+            2. Extract threadId and senderId from the mentions.
+            3. Think 2 seconds about the request related to YouTube or music.
+            4. Create a plan using your specialized tools (AngusYouTubeUploadTool, AngusCommentProcessingTool, etc.)
+            5. Execute only the tools needed to fulfill the request.
+            6. Think 3 seconds and formulate your "answer" based on the results.
+            7. Send answer via send_message to the original sender using the threadId.
+            8. On errors, send error message via send_message.
+
+            All tools (Coral + yours): {tools_description}
+            Your tools: {agent_tools_description}
+            """
+        ),
+        ("human", "{input}"),
+        ("placeholder", "{agent_scratchpad}")
+    ])
+    
+    model = init_chat_model(
+        model="gpt-4o-mini",
+        model_provider="openai",
+        api_key=os.getenv("OPENAI_API_KEY"),
+        temperature=0.3,
+        max_tokens=16000
+    )
+    
+    agent = create_tool_calling_agent(model, tools, prompt)
+    return AgentExecutor(agent=agent, tools=tools, verbose=True)
+
 async def main():
-    """Main function to run optimized Agent Angus."""
-    async with MultiServerMCPClient(
-        connections={
-            "coral": {
-                "transport": "sse",
-                "url": MCP_SERVER_URL,
-                "timeout": 300,
-                "sse_read_timeout": 300,
-            }
-        }
-    ) as client:
-        logger.info(f"Connected to MCP server at {MCP_SERVER_URL}")
-        
-        # Setup tools
-        tools = client.get_tools() + [
-            AngusYouTubeUploadTool,
-            AngusCommentProcessingTool,
-            AngusQuotaCheckTool
-        ]
-        agent_tool = [
-            AngusYouTubeUploadTool,
-            AngusCommentProcessingTool,
-            AngusQuotaCheckTool
-        ]
-        
-        logger.info(f"Total tools available: {len(tools)}")
-        logger.info(f"YouTube tools available: {YOUTUBE_TOOLS_AVAILABLE}")
-        logger.info(f"Supabase tools available: {SUPABASE_TOOLS_AVAILABLE}")
-        logger.info(f"AI tools available: {AI_TOOLS_AVAILABLE}")
-        
-        # Create agent (but don't start the continuous loop yet)
-        agent_executor = await create_angus_music_agent(client, tools, agent_tool)
-        
-        logger.info("🎵 Agent Angus started successfully!")
-        logger.info("💡 Optimized mode: Only calls OpenAI when mentions are received")
-        logger.info("Ready for inter-agent collaboration and music automation tasks")
-        
-        # OPTIMIZED MAIN LOOP - No continuous OpenAI calls!
-        while True:
-            try:
-                # Step 1: Wait for mentions (NO OpenAI call here)
-                mentions = await wait_for_mentions_efficiently(client)
+    """Main function to run Coral Angus Agent."""
+    logger.info("Starting Coral Angus - Template Aligned Version...")
+    
+    while True:  # Outer reconnection loop
+        try:
+            async with MultiServerMCPClient(
+                connections={
+                    "coral": {
+                        "transport": "sse",
+                        "url": MCP_SERVER_URL,
+                        "timeout": 300,
+                        "sse_read_timeout": 300,
+                    }
+                }
+            ) as client:
+                logger.info(f"Connected to MCP server at {MCP_SERVER_URL}")
                 
-                if mentions:
-                    # Step 2: ONLY NOW call OpenAI to process the mentions
-                    await process_mentions_with_ai(agent_executor, mentions)
-                else:
-                    # No mentions received, just wait a bit and try again
-                    await asyncio.sleep(2)
-                    
-            except Exception as e:
-                # Handle ClosedResourceError specifically
-                if "ClosedResourceError" in str(type(e)):
-                    logger.info("MCP connection closed after timeout, waiting before retry")
-                    await asyncio.sleep(5)
-                    continue
-                else:
-                    logger.error(f"Error in optimized agent loop: {str(e)}")
-                    await asyncio.sleep(10)
+                # Setup tools
+                coral_tools = client.get_tools()
+                angus_tools = [
+                    AngusYouTubeUploadTool,
+                    AngusCommentProcessingTool,
+                    AngusQuotaCheckTool
+                ]
+                tools = coral_tools + angus_tools
+                
+                logger.info(f"Total tools available: {len(tools)}")
+                logger.info(f"YouTube tools available: {YOUTUBE_TOOLS_AVAILABLE}")
+                logger.info(f"Supabase tools available: {SUPABASE_TOOLS_AVAILABLE}")
+                logger.info(f"AI tools available: {AI_TOOLS_AVAILABLE}")
+                
+                # Create agent
+                agent_executor = await create_agent(client, tools, angus_tools)
+                
+                logger.info("🎵 Coral Angus started successfully!")
+                logger.info("💡 Optimized mode: Only calls OpenAI when mentions are received")
+                logger.info("Ready for inter-agent collaboration and music automation tasks")
+                
+                # OPTIMIZED MAIN LOOP - No continuous OpenAI calls!
+                while True:
+                    try:
+                        # Step 1: Wait for mentions (NO OpenAI call here)
+                        mentions = await wait_for_mentions_efficiently(client)
+                        
+                        if mentions:
+                            # Step 2: ONLY NOW call OpenAI to process the mentions
+                            await process_mentions_with_ai(agent_executor, mentions)
+                        else:
+                            # No mentions received, just wait a bit and try again
+                            await asyncio.sleep(2)
+                            
+                    except Exception as e:
+                        # Handle ClosedResourceError specifically
+                        if "ClosedResourceError" in str(type(e)):
+                            logger.info("MCP connection closed after timeout, waiting before retry")
+                            await asyncio.sleep(5)
+                            continue
+                        else:
+                            logger.error(f"Error in optimized agent loop: {str(e)}")
+                            await asyncio.sleep(10)
+                
+        except Exception as e:
+            logger.error(f"FATAL ERROR in main: {str(e)}")
+            logger.info("Reconnecting in 10 seconds...")
+            await asyncio.sleep(10)
 
 if __name__ == "__main__":
     asyncio.run(main())
