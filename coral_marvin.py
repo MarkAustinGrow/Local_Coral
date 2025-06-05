@@ -245,7 +245,7 @@ Blog post:"""
         
         blog_text = response.choices[0].message.content.strip()
             
-        logger.info(f"Generated blog post with title: {blog_text.split('\\n')[0]}")
+        logger.info(f"Generated blog post with title: {blog_text.split('\n')[0]}")
         
         return {
             "result": {
@@ -415,7 +415,7 @@ async def main():
                             
                     except Exception as e:
                         # Handle ClosedResourceError specifically
-                        if "ClosedResourceError" in str(type(e)):
+                        if isinstance(e, ClosedResourceError):
                             logger.info("MCP connection closed after timeout, waiting before retry")
                             await asyncio.sleep(5)
                             continue

@@ -125,9 +125,11 @@ class YouTubeClientLangChain:
         creds = None
         force_new_auth = False
         
-        # Check for token in multiple locations
+        # Use environment variable for primary token path, fallback to './data/token.pickle'
+        primary_token_path = os.getenv('YOUTUBE_TOKEN_PATH', './data/token.pickle')
+        # Construct token paths list with env var first, then legacy paths
         token_paths = [
-            './data/token.pickle', 
+            primary_token_path,
             './token.pickle',
             '/opt/Angus_Langchain/data/token.pickle',
             '/opt/Angus_Langchain/token.pickle'
@@ -230,7 +232,7 @@ class YouTubeClientLangChain:
                     logger.info(f"Uploaded {int(status.progress() * 100)}%")
             
             # Make sure to close the media file
-            if hasattr(media, "stream") and media.stream():
+            if hasattr(media, "stream") and media.stream() and not media.stream().closed:
                 media.stream().close()
             
             logger.info(f"Video upload complete: {response['id']}")
@@ -892,7 +894,7 @@ async def main():
                             
                     except Exception as e:
                         # Handle ClosedResourceError specifically
-                        if "ClosedResourceError" in str(type(e)):
+                        if isinstance(e, ClosedResourceError):
                             logger.info("MCP connection closed after timeout, waiting before retry")
                             await asyncio.sleep(5)
                             continue

@@ -976,7 +976,7 @@ async def main():
                 ]
                 tools = coral_tools + yoona_tools
                 
-                logger.info(f"Tools loaded: {len(coral_tools)} Coral + {len(yoona_tools)} yoona = {len(tools)} total")
+                logger.info(f"Tools loaded: {len(coral_tools)} Coral + {len(yoona_tools)} Yona = {len(tools)} total")
                 
                 # Create agent
                 agent_executor = await create_agent(client, tools, yoona_tools)
@@ -1000,7 +1000,7 @@ async def main():
                             
                     except Exception as e:
                         # Handle ClosedResourceError specifically
-                        if "ClosedResourceError" in str(type(e)):
+                        if isinstance(e, ClosedResourceError):
                             logger.info("MCP connection closed after timeout, waiting before retry")
                             await asyncio.sleep(5)
                             continue
