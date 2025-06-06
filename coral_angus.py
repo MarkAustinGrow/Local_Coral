@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Coral Angus Agent - Youtube channel management
-Optimized format aligned with Coral template pattern
+Coral Angus Agent - YouTube and Supabase Integration
+Handles song uploads to YouTube and database operations
 """
 
 # Standard & external imports
@@ -9,14 +9,19 @@ import asyncio
 import os
 import json
 import logging
+import pickle
 import re
 import time
-import pickle
-import tempfile
+import httpx
 from typing import Dict, List, Optional, Any, Union
 from dotenv import load_dotenv
 import urllib.parse
-import requests
+from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import InstalledAppFlow
+from google.auth.transport.requests import Request
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaFileUpload
+from supabase import create_client, Client
 
 # Langchain & Coral/Adapter specific
 from langchain_mcp_adapters.client import MultiServerMCPClient
@@ -25,18 +30,6 @@ from langchain.chat_models import init_chat_model
 from langchain.agents import create_tool_calling_agent, AgentExecutor
 from langchain_core.tools import tool
 from anyio import ClosedResourceError
-
-# External API imports
-import openai
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaFileUpload
-from google_auth_oauthlib.flow import InstalledAppFlow
-from google.auth.transport.requests import Request
-try:
-    from supabase import create_client, Client
-    SUPABASE_AVAILABLE = True
-except ImportError:
-    SUPABASE_AVAILABLE = False
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -49,9 +42,6 @@ load_dotenv()
 if not os.getenv("OPENAI_API_KEY"):
     raise ValueError("OPENAI_API_KEY is not set in environment variables.")
 
-# Declarations for tool availability and helper functions
-YOUTUBE_TOOLS_AVAILABLE = True
-
 # MCP Server Configuration
 AGENT_NAME = "Angus_agent"
 MCP_BASE_URL = "http://localhost:5555/devmode/exampleApplication/privkey/session1/sse"
@@ -62,681 +52,394 @@ params = {
 }
 MCP_SERVER_URL = f"{MCP_BASE_URL}?{urllib.parse.urlencode(params)}"
 
-# ========== YOUTUBE CLIENT CLASS ==========
+# YouTube API Configuration
+SCOPES = [
+    'https://www.googleapis.com/auth/youtube.upload',
+    'https://www.googleapis.com/auth/youtube.force-ssl',
+    'https://www.googleapis.com/auth/youtube'
+]
 
-# OAuth 2.0 scopes for YouTube API
-SCOPES = ["https://www.googleapis.com/auth/youtube.upload", 
-          "https://www.googleapis.com/auth/youtube.force-ssl"]
-
-class YouTubeClientLangChain:
-    """
-    Simplified YouTube client for LangChain Agent Angus.
-    """
-    
-    def __init__(self, client_id: Optional[str] = None, client_secret: Optional[str] = None, 
-                 api_key: Optional[str] = None, channel_id: Optional[str] = None):
-        """
-        Initialize the YouTube client.
-        """
-        # Get credentials from environment variables or .env file
-        self.client_id = client_id or self._get_env_var('YOUTUBE_CLIENT_ID')
-        self.client_secret = client_secret or self._get_env_var('YOUTUBE_CLIENT_SECRET')
-        self.api_key = api_key or self._get_env_var('YOUTUBE_API_KEY')
-        self.channel_id = channel_id or self._get_env_var('YOUTUBE_CHANNEL_ID')
-        self.youtube = None
-        
-        # Validate credentials
-        if not self.client_id or not self.client_secret:
-            logger.warning("YouTube OAuth credentials are missing!")
-            raise ValueError("YouTube OAuth credentials are required")
-        
-        # Initialize client
-        try:
-            self.authenticate()
-            logger.info("YouTube client initialized")
-        except Exception as e:
-            logger.error(f"Error initializing YouTube client: {str(e)}")
-            raise
-    
-    def _get_env_var(self, var_name: str) -> Optional[str]:
-        """Get environment variable, loading from .env file if needed."""
-        # First check if already in environment
-        value = os.getenv(var_name)
-        if value:
-            return value
-        
-        # Try to load from .env file
-        env_file = '.env'
-        if os.path.exists(env_file):
-            with open(env_file, 'r') as f:
-                for line in f:
-                    line = line.strip()
-                    if line and not line.startswith('#') and '=' in line:
-                        key, val = line.split('=', 1)
-                        if key == var_name:
-                            return val
-        
-        return None
-    
-    def authenticate(self) -> None:
-        """
-        Authenticate with YouTube API using OAuth 2.0.
-        """
-        creds = None
-        force_new_auth = False
-        
-        # Use environment variable for primary token path, fallback to './data/token.pickle'
-        primary_token_path = os.getenv('YOUTUBE_TOKEN_PATH', './data/token.pickle')
-        # Construct token paths list with env var first, then legacy paths
-        token_paths = [
-            primary_token_path,
-            './token.pickle',
-            '/opt/Angus_Langchain/data/token.pickle',
-            '/opt/Angus_Langchain/token.pickle'
-        ]
-        token_path_used = None
-        
-        for token_path in token_paths:
-            if os.path.exists(token_path):
-                try:
-                    with open(token_path, 'rb') as token:
-                        creds = pickle.load(token)
-                    logger.info(f"Loaded credentials from {token_path}")
-                    token_path_used = token_path
-                    break
-                except Exception as e:
-                    logger.warning(f"Error loading credentials from {token_path}: {str(e)}")
-                    force_new_auth = True
-        
-        # If credentials don't exist or are invalid, raise an error
-        if not creds or not creds.valid or force_new_auth:
-            if creds and creds.expired and creds.refresh_token and not force_new_auth:
-                try:
-                    creds.refresh(Request())
-                    logger.info("Refreshed expired credentials")
-                except Exception as e:
-                    logger.warning(f"Error refreshing credentials: {str(e)}")
-                    raise ValueError("YouTube credentials expired and could not be refreshed. Please run youtube_auth_langchain.py")
-            else:
-                raise ValueError("No valid YouTube credentials found. Please run youtube_auth_langchain.py first")
-        
-        # Build YouTube API client
-        self.youtube = build("youtube", "v3", credentials=creds)
-    
-    def upload_video(self, video_url: str, title: str, description: str, 
-                     tags: List[str] = None) -> Optional[str]:
-        """
-        Upload a video to YouTube.
-        
-        Args:
-            video_url: URL of the video file to upload
-            title: Title of the video
-            description: Description of the video
-            tags: List of tags for the video
-            
-        Returns:
-            YouTube video ID if successful, None otherwise
-            Special return value "URL_EXPIRED" if the URL is expired or inaccessible
-        """
-        logger.info(f"Uploading video: {title}")
-        
-        # Create a temporary file path
-        temp_fd, temp_video_path = tempfile.mkstemp(suffix='.mp4')
-        os.close(temp_fd)  # Close the file descriptor immediately
-        
-        try:
-            # Download the video
-            try:
-                response = requests.get(video_url, stream=True)
-                response.raise_for_status()  # Raise exception for HTTP errors
-            except requests.HTTPError as e:
-                if e.response.status_code == 403:
-                    logger.warning(f"URL expired or access denied: {video_url}")
-                    return "URL_EXPIRED"  # Special return value for expired URLs
-                else:
-                    # Re-raise other HTTP errors
-                    raise
-            
-            with open(temp_video_path, 'wb') as temp_file:
-                for chunk in response.iter_content(chunk_size=8192):
-                    temp_file.write(chunk)
-            
-            logger.info(f"Downloaded video to temporary file: {temp_video_path}")
-            
-            # Prepare video metadata
-            body = {
-                "snippet": {
-                    "title": title,
-                    "description": description,
-                    "tags": tags or [],
-                    "categoryId": "10"  # Music category
-                },
-                "status": {
-                    "privacyStatus": "public"
-                }
-            }
-            
-            # Upload to YouTube
-            media = MediaFileUpload(temp_video_path, resumable=True, chunksize=1024*1024)
-            request = self.youtube.videos().insert(
-                part=",".join(body.keys()),
-                body=body,
-                media_body=media
-            )
-            
-            # Execute upload with progress reporting
-            response = None
-            while response is None:
-                status, response = request.next_chunk()
-                if status:
-                    logger.info(f"Uploaded {int(status.progress() * 100)}%")
-            
-            # Make sure to close the media file
-            if hasattr(media, "stream") and media.stream() and not media.stream().closed:
-                media.stream().close()
-            
-            logger.info(f"Video upload complete: {response['id']}")
-            return response["id"]
-            
-        except Exception as e:
-            error_str = str(e)
-            logger.error(f"Error uploading video: {error_str}")
-            
-            # Check if this is an upload limit exceeded error
-            if "uploadLimitExceeded" in error_str or "The user has exceeded the number of videos they may upload" in error_str:
-                # Re-raise the exception to be caught by the caller
-                raise
-                
-            return None
-            
-        finally:
-            # Wait a moment to ensure file is released
-            time.sleep(1)
-            
-            # Clean up temporary file with retry
-            for _ in range(5):
-                try:
-                    if os.path.exists(temp_video_path):
-                        os.remove(temp_video_path)
-                    break
-                except Exception as e:
-                    logger.warning(f"Failed to remove temp file, retrying: {str(e)}")
-                    time.sleep(1)
-    
-    def reply_to_comment(self, comment_id: str, reply_text: str) -> Optional[str]:
-        """
-        Reply to a YouTube comment.
-        
-        Args:
-            comment_id: The ID of the comment to reply to
-            reply_text: The text of the reply
-            
-        Returns:
-            The ID of the reply comment if successful, None otherwise
-        """
-        logger.info(f"Replying to comment: {comment_id}")
-        
-        try:
-            response = self.youtube.comments().insert(
-                part="snippet",
-                body={
-                    "snippet": {
-                        "parentId": comment_id,
-                        "textOriginal": reply_text
-                    }
-                }
-            ).execute()
-            
-            reply_id = response.get("id")
-            logger.info(f"Successfully replied to comment {comment_id} with reply ID: {reply_id}")
-            return reply_id
-            
-        except Exception as e:
-            logger.error(f"Error replying to comment {comment_id}: {str(e)}")
-            return None
-    
-    def fetch_comments(self, video_id: str, max_results: int = 100) -> List[Dict[str, Any]]:
-        """
-        Fetch comments for a YouTube video.
-        
-        Args:
-            video_id: YouTube video ID
-            max_results: Maximum number of comments to retrieve
-            
-        Returns:
-            List of comment data dictionaries
-        """
-        logger.info(f"Fetching comments for video ID: {video_id}")
-        
-        try:
-            # Fetch comments with replies
-            request = self.youtube.commentThreads().list(
-                part="snippet,replies",
-                videoId=video_id,
-                maxResults=max_results
-            )
-            response = request.execute()
-            
-            # Process comments
-            comments = []
-            for item in response.get("items", []):
-                comment_id = item["id"]
-                snippet = item["snippet"]["topLevelComment"]["snippet"]
-                
-                # Check if we've already replied to this comment
-                has_our_reply = False
-                if "replies" in item and item["replies"]["comments"]:
-                    for reply in item["replies"]["comments"]:
-                        reply_snippet = reply["snippet"]
-                        if reply_snippet.get("authorChannelId", {}).get("value") == self.channel_id:
-                            has_our_reply = True
-                            break
-                
-                comment_data = {
-                    "comment_id": comment_id,
-                    "author": snippet["authorDisplayName"],
-                    "content": snippet["textOriginal"],
-                    "timestamp": snippet["publishedAt"],
-                    "has_our_reply": has_our_reply
-                }
-                comments.append(comment_data)
-            
-            logger.info(f"Retrieved {len(comments)} comments")
-            return comments
-            
-        except Exception as e:
-            logger.error(f"Error fetching comments: {str(e)}")
-            return []
-
-# Create a global YouTube client instance
-_youtube_client = None
-
-def get_youtube_client() -> YouTubeClientLangChain:
-    """Get or create a YouTube client instance."""
-    global _youtube_client
-    if _youtube_client is None:
-        _youtube_client = YouTubeClientLangChain()
-    return _youtube_client
-
-# ========== SUPABASE UTILITIES ==========
-
-# Global Supabase client instance
-_supabase_client = None
-
-def get_supabase_client():
-    """Get or create a Supabase client instance."""
-    global _supabase_client
-    if _supabase_client is None:
-        if not SUPABASE_AVAILABLE:
-            raise ImportError("Supabase library not available. Install with: pip install supabase")
-        
-        url = os.getenv("SUPABASE_URL")
-        key = os.getenv("SUPABASE_KEY")
-        
-        if not url or not key:
-            raise ValueError("SUPABASE_URL and SUPABASE_KEY environment variables are required")
-        
-        _supabase_client = create_client(url, key)
-        logger.info("Supabase client initialized successfully")
-    
-    return _supabase_client
-
-def _get_song_details_direct(song_id: str) -> Dict[str, Any]:
-    """Direct function to get song details without tool calling."""
-    try:
-        supabase_client = get_supabase_client()
-        
-        # Use standard Supabase API instead of custom get_song_by_id method
-        response = supabase_client.table("songs").select("*").eq("id", song_id).execute()
-        
-        if response.data and len(response.data) > 0:
-            return response.data[0]
-        else:
-            return {}
-    except Exception as e:
-        logger.error(f"Error getting song details: {str(e)}")
-        return {}
-
-def _update_song_status_direct(song_id: str, status: str, youtube_id: str = None) -> bool:
-    """Direct function to update song status without tool calling."""
-    try:
-        supabase_client = get_supabase_client()
-        
-        # Check if there are existing records for this song - use standard API
-        existing_response = supabase_client.table("youtube").select("id").eq("song_id", song_id).execute()
-        existing_records = existing_response.data if existing_response.data else []
-        
-        # Prepare update data
-        update_data = {
-            "song_id": song_id,
-            "status": status
-        }
-        
-        if youtube_id:
-            update_data["youtube_id"] = youtube_id
-            
-        # Get song title for the record - use standard API
-        song_response = supabase_client.table("songs").select("title").eq("id", song_id).execute()
-        if song_response.data and len(song_response.data) > 0:
-            update_data["title"] = song_response.data[0].get("title", "Unknown")
-        
-        if existing_records:
-            # Update the first existing record - use standard API
-            record_id = existing_records[0].get('id')
-            supabase_client.table("youtube").update(update_data).eq("id", record_id).execute()
-            
-            # Delete any additional records - use standard API
-            if len(existing_records) > 1:
-                for record in existing_records[1:]:
-                    delete_id = record.get('id')
-                    supabase_client.table("youtube").delete().eq("id", delete_id).execute()
-        else:
-            # Insert new record - use standard API
-            supabase_client.table("youtube").insert(update_data).execute()
-        
-        return True
-    except Exception as e:
-        logger.error(f"Error updating song status: {str(e)}")
-        return False
-
-# ========== TOOL DEFINITIONS ==========
+# Supabase Configuration
+supabase: Optional[Client] = None
+try:
+    supabase = create_client(
+        os.getenv("SUPABASE_URL", ""),
+        os.getenv("SUPABASE_KEY", "")
+    )
+except Exception as e:
+    logger.error(f"Failed to initialize Supabase client: {e}")
 
 # YouTube Tools
 @tool
-def upload_song_to_youtube(song_id: str, title: str = None, description: str = None, tags: List[str] = None, privacy: str = "public") -> str:
+async def get_youtube_credentials() -> Dict[str, Any]:
     """
-    Upload a song to YouTube.
+    Get YouTube API credentials from an existing pickle file.
     
-    Args:
-        song_id: ID of the song to upload
-        title: Video title (will be fetched from database if not provided)
-        description: Video description (will be generated if not provided)
-        tags: List of video tags (will be generated if not provided)
-        privacy: Privacy setting (public, private, unlisted)
-        
     Returns:
-        YouTube video ID if successful, error message if failed
+        Dictionary with credentials status
     """
     try:
-        logger.info(f"Uploading song {song_id} to YouTube")
+        # Path to the existing pickle file
+        pickle_path = 'E:/Plank pushers/langchain-worldnews/data/token.pickle'
         
-        # Get song details from database using direct function
-        song_data = _get_song_details_direct(song_id)
+        # Load credentials from pickle file
+        with open(pickle_path, 'rb') as token:
+            creds = pickle.load(token)
         
-        if not song_data or 'error' in song_data:
-            return f"Error: Could not retrieve song data for {song_id}"
+        # Refresh credentials if expired
+        if creds and creds.expired and creds.refresh_token:
+            creds.refresh(Request())
         
-        video_url = song_data.get('video_url')
-        if not video_url:
-            return f"Error: No video URL found for song {song_id}"
+        return {
+            "status": "success",
+            "message": "YouTube credentials loaded successfully",
+            "credentials": creds
+        }
         
-        # Use provided values or defaults from song data
-        upload_title = title or song_data.get('title', 'Untitled Song')
-        upload_description = description or song_data.get('gpt_description', '')
-        
-        # If no description, use lyrics
-        if not upload_description and song_data.get('lyrics'):
-            upload_description = f"Lyrics:\n\n{song_data['lyrics']}"
-        
-        # Prepare tags
-        upload_tags = tags or []
-        if not upload_tags and song_data.get('style'):
-            upload_tags = [tag.strip() for tag in song_data['style'].split(',')]
-        
-        # Upload to YouTube using client
-        youtube_client = get_youtube_client()
-        youtube_id = youtube_client.upload_video(
-            video_url=video_url,
-            title=upload_title,
-            description=upload_description,
-            tags=upload_tags
-        )
-        
-        if youtube_id == "URL_EXPIRED":
-            # Update status in database using direct function
-            _update_song_status_direct(song_id, "url_expired")
-            return f"Error: Video URL expired for song {song_id}"
-        
-        if youtube_id:
-            # Update status in database using direct function
-            _update_song_status_direct(song_id, "uploaded", youtube_id)
-            logger.info(f"Successfully uploaded song {song_id} to YouTube: {youtube_id}")
-            return youtube_id
-        else:
-            # Update status in database using direct function
-            _update_song_status_direct(song_id, "failed")
-            return f"Error: Upload failed for song {song_id}"
-            
     except Exception as e:
-        error_msg = f"Error uploading song {song_id}: {str(e)}"
-        logger.error(error_msg)
-        
-        # Check if this is an upload limit exceeded error
-        if "uploadLimitExceeded" in str(e) or "The user has exceeded the number of videos they may upload" in str(e):
-            # Update status in database using direct function
-            _update_song_status_direct(song_id, "failed")
-            return f"Error: YouTube upload limit exceeded"
-        
-        return error_msg
-
+        logger.error(f"Error getting YouTube credentials: {e}")
+        return {
+            "status": "error",
+            "error": str(e)
+        }
 
 @tool
-def process_video_comments(video_id: str, song_id: str = None, max_replies: int = 10) -> int:
+async def upload_to_youtube(
+    video_path: str,
+    title: str,
+    description: str,
+    category_id: str = "10",  # Music category
+    privacy_status: str = "private",
+    tags: Optional[List[str]] = None
+) -> Dict[str, Any]:
     """
-    Process comments for a YouTube video - fetch, analyze, and reply.
+    Upload a video to YouTube.
     
     Args:
-        video_id: YouTube video ID
-        song_id: Song ID (will be looked up if not provided)
-        max_replies: Maximum number of replies to post
+        video_path: Path to the video file
+        title: Video title
+        description: Video description
+        category_id: Video category ID (default: 10 for Music)
+        privacy_status: Privacy status (private, unlisted, public)
+        tags: List of tags for the video
         
     Returns:
-        Number of comments processed
+        Dictionary with upload status and video ID
     """
     try:
-        logger.info(f"Processing comments for video {video_id}")
+        # Get credentials
+        creds_result = await get_youtube_credentials.ainvoke({})
+        if creds_result.get("status") == "error":
+            return creds_result
         
-        # Get song info if not provided using direct database access
-        if not song_id:
-            try:
-                supabase_client = get_supabase_client()
-                # Use standard API instead of .client
-                response = supabase_client.table("youtube").select("song_id").eq("youtube_id", video_id).execute()
-                if response.data and len(response.data) > 0:
-                    song_id = response.data[0].get('song_id')
-                else:
-                    return 0
-            except Exception as e:
-                logger.error(f"Error getting song ID for video {video_id}: {str(e)}")
-                return 0
+        # Build YouTube API service
+        creds = creds_result.get("credentials")
+        youtube = build('youtube', 'v3', credentials=creds)
         
-        # Get song details for context using direct function
-        song_data = _get_song_details_direct(song_id)
-        song_title = song_data.get('title', 'Unknown Song') if song_data else 'Unknown Song'
-        song_style = song_data.get('style') if song_data else None
+        # Prepare video metadata
+        body = {
+            'snippet': {
+                'title': title,
+                'description': description,
+                'tags': tags or [],
+                'categoryId': category_id
+            },
+            'status': {
+                'privacyStatus': privacy_status,
+                'selfDeclaredMadeForKids': False
+            }
+        }
         
-        # Fetch comments using the tool
-        youtube_client = get_youtube_client()
-        comments = youtube_client.fetch_comments(video_id, max_results=100)
+        # Upload video
+        media = MediaFileUpload(
+            video_path,
+            mimetype='video/mp4',
+            resumable=True
+        )
         
-        if not comments:
-            return 0
+        request = youtube.videos().insert(
+            part=','.join(body.keys()),
+            body=body,
+            media_body=media
+        )
         
-        # Get existing feedback to avoid duplicates using direct database access
-        try:
-            supabase_client = get_supabase_client()
-            # Use standard API instead of .client
-            response = supabase_client.table("feedback").select("*").eq("song_id", song_id).execute()
-            existing_feedback = response.data if response.data else []
-            existing_comment_ids = set()
-            if existing_feedback:
-                for feedback in existing_feedback:
-                    if feedback.get('comment_id'):
-                        existing_comment_ids.add(feedback.get('comment_id'))
-        except Exception as e:
-            logger.error(f"Error getting existing feedback: {str(e)}")
-            existing_comment_ids = set()
+        response = request.execute()
         
-        # Process comments
-        processed_count = 0
-        for comment in comments:
-            if processed_count >= max_replies:
-                break
-                
-            comment_id = comment.get("comment_id")
-            comment_text = comment.get("content", "")
-            
-            # Skip if already processed
-            if comment_id in existing_comment_ids:
-                continue
-                
-            # Skip if we already replied
-            if comment.get("has_our_reply", False):
-                continue
-            
-            try:
-                # Store feedback using direct database access
-                try:
-                    supabase_client = get_supabase_client()
-                    feedback_data = {
-                        "song_id": song_id,
-                        "comments": comment.get("content", ""),
-                        "comment_id": comment.get("comment_id", "")
-                    }
-                    # Use standard API instead of .client
-                    supabase_client.table("feedback").insert(feedback_data).execute()
-                except Exception as e:
-                    logger.error(f"Error storing feedback: {str(e)}")
-                
-                # Generate response using AI tools - simple fallback
-                response_text = "Thank you for your comment! We appreciate your feedback."
-                if song_title and song_title != 'Unknown Song':
-                    response_text = f"Thank you for listening to '{song_title}'! We're glad you enjoyed it."
-                
-                if response_text:
-                    # Reply to comment using YouTube client
-                    reply_id = youtube_client.reply_to_comment(comment_id, response_text)
-                    if reply_id:
-                        processed_count += 1
-                        logger.info(f"Successfully processed comment: {comment_text[:50]}...")
-                
-            except Exception as e:
-                logger.error(f"Error processing comment {comment_id}: {str(e)}")
-        
-        logger.info(f"Processed {processed_count} comments for video {video_id}")
-        return processed_count
+        return {
+            "status": "success",
+            "video_id": response['id'],
+            "url": f"https://www.youtube.com/watch?v={response['id']}"
+        }
         
     except Exception as e:
-        error_msg = f"Error processing comments for video {video_id}: {str(e)}"
-        logger.error(error_msg)
-        return 0
+        logger.error(f"Error uploading to YouTube: {e}")
+        return {
+            "status": "error",
+            "error": str(e)
+        }
 
 # Supabase Tools
 @tool
-def get_pending_songs(limit: int = 10) -> List[Dict[str, Any]]:
+async def get_pending_songs() -> Dict[str, Any]:
     """
-    Get songs from Supabase that are ready for YouTube upload.
+    Get songs from Supabase that need to be uploaded to YouTube.
     
-    Args:
-        limit: Maximum number of songs to return
-        
     Returns:
-        List of song data dictionaries
+        Dictionary with list of pending songs
     """
     try:
-        logger.info(f"Getting pending songs for upload (limit: {limit})")
+        if not supabase:
+            return {
+                "status": "error",
+                "error": "Supabase client not initialized"
+            }
         
-        if not SUPABASE_AVAILABLE:
-            # Return mock data for testing
-            return [{
-                "id": "test_song_1",
-                "title": "Test Song",
-                "video_url": "https://example.com/test.mp4",
-                "description": "A test song for Agent Angus",
-                "style": "electronic, test"
-            }]
+        # Query songs that haven't been uploaded to YouTube
+        response = supabase.table('songs').select('*').is_('youtube_url', 'null').execute()
         
-        supabase_client = get_supabase_client()
-        
-        # Get all songs with video_url
-        response = supabase_client.table("songs").select("*").not_.is_("video_url", "null").limit(50).execute()
-        all_songs = response.data if response.data else []
-        
-        # Get all successfully uploaded song IDs
-        uploaded_response = supabase_client.table("youtube").select("song_id").eq("status", "uploaded").execute()
-        uploaded_song_ids = set()
-        if uploaded_response.data:
-            for item in uploaded_response.data:
-                uploaded_song_ids.add(item.get('song_id'))
-        
-        # Filter songs that have video_url and haven't been successfully uploaded
-        pending_songs = [
-            song for song in all_songs 
-            if song.get('video_url') and song.get('id') not in uploaded_song_ids
-        ]
-        
-        # Limit the number of songs
-        pending_songs = pending_songs[:limit]
-        
-        logger.info(f"Found {len(pending_songs)} pending songs")
-        return pending_songs
+        return {
+            "status": "success",
+            "songs": response.data
+        }
         
     except Exception as e:
-        error_msg = f"Error getting pending songs: {str(e)}"
-        logger.error(error_msg)
-        # Return mock data on error
-        return [{
-            "id": "test_song_1",
-            "title": "Test Song",
-            "video_url": "https://example.com/test.mp4",
-            "description": "A test song for Agent Angus",
-            "style": "electronic, test"
-        }]
-
+        logger.error(f"Error getting pending songs: {e}")
+        return {
+            "status": "error",
+            "error": str(e)
+        }
 
 @tool
-def get_uploaded_videos(limit: int = 10) -> List[Dict[str, Any]]:
+async def get_uploaded_songs() -> Dict[str, Any]:
     """
-    Get uploaded YouTube videos from the database.
+    Get songs from Supabase that have been uploaded to YouTube.
     
-    Args:
-        limit: Maximum number of videos to return
-        
     Returns:
-        List of uploaded video data
+        Dictionary with list of uploaded songs that have YouTube URLs
     """
     try:
-        logger.info(f"Getting uploaded videos (limit: {limit})")
+        if not supabase:
+            return {
+                "status": "error",
+                "error": "Supabase client not initialized"
+            }
         
-        if not SUPABASE_AVAILABLE:
-            return [{
-                "song_id": "test_song_1",
-                "youtube_id": "test_video_123",
-                "title": "Test Song",
-                "status": "uploaded"
-            }]
+        # Query songs that HAVE been uploaded to YouTube (youtube_url is NOT null)
+        # Only select the necessary fields to reduce data transfer
+        response = supabase.table('songs').select('id,title,youtube_url').not_.is_('youtube_url', 'null').execute()
         
-        supabase_client = get_supabase_client()
-        
-        # Get uploaded videos
-        response = supabase_client.table("youtube").select("*").eq("status", "uploaded").limit(limit).execute()
-        
-        videos = response.data if response.data else []
-        logger.info(f"Found {len(videos)} uploaded videos")
-        return videos
+        return {
+            "status": "success",
+            "songs": response.data
+        }
         
     except Exception as e:
-        error_msg = f"Error getting uploaded videos: {str(e)}"
-        logger.error(error_msg)
-        return [{
-            "song_id": "test_song_1",
-            "youtube_id": "test_video_123",
-            "title": "Test Song",
-            "status": "uploaded"
-        }]
+        logger.error(f"Error getting uploaded songs: {e}")
+        return {
+            "status": "error",
+            "error": str(e)
+        }
 
+@tool
+async def update_song_youtube_url(
+    song_id: str,
+    youtube_url: str,
+    youtube_id: str
+) -> Dict[str, Any]:
+    """
+    Update a song's YouTube URL in Supabase.
+    
+    Args:
+        song_id: ID of the song in Supabase
+        youtube_url: Full YouTube URL
+        youtube_id: YouTube video ID
+        
+    Returns:
+        Dictionary with update status
+    """
+    try:
+        if not supabase:
+            return {
+                "status": "error",
+                "error": "Supabase client not initialized"
+            }
+        
+        # First get the current params_used value
+        current_data = supabase.table('songs').select('params_used').eq('id', song_id).execute()
+        
+        if not current_data.data:
+            return {
+                "status": "error",
+                "error": f"Song with ID {song_id} not found"
+            }
+            
+        # Get current params or initialize empty dict if None
+        current_params = current_data.data[0]['params_used'] or {}
+        
+        # Update the params with YouTube info
+        current_params.update({
+            'youtube_id': youtube_id,
+            'uploaded_at': time.strftime('%Y-%m-%d %H:%M:%S')
+        })
+        
+        # Update the song record
+        response = supabase.table('songs').update({
+            'youtube_url': youtube_url,  # Changed from video_url to youtube_url
+            'params_used': current_params
+        }).eq('id', song_id).execute()
+        
+        return {
+            "status": "success",
+            "message": f"Updated YouTube URL for song {song_id}"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error updating song YouTube URL: {e}")
+        return {
+            "status": "error",
+            "error": str(e)
+        }
 
-# ========== UTILITY FUNCTIONS ==========
+@tool
+async def save_youtube_comment(
+    video_id: str,
+    comment_text: str,
+    author_name: str = "Angus_agent"
+) -> Dict[str, Any]:
+    """
+    Save a YouTube comment to Supabase.
+    
+    Args:
+        video_id: YouTube video ID
+        comment_text: The comment text
+        author_name: Name of the comment author
+        
+    Returns:
+        Dictionary with save status
+    """
+    try:
+        if not supabase:
+            return {
+                "status": "error",
+                "error": "Supabase client not initialized"
+            }
+        
+        # Save the comment to the feedback table
+        response = supabase.table('feedback').insert({
+            'song_id': video_id,  # Using song_id instead of video_id
+            'comments': comment_text,  # Using comments instead of comment_text
+            'author_name': author_name,
+            'created_at': time.strftime('%Y-%m-%d %H:%M:%S')
+        }).execute()
+        
+        return {
+            "status": "success",
+            "message": "Comment saved successfully",
+            "comment_id": response.data[0]['id'] if response.data else None
+        }
+        
+    except Exception as e:
+        logger.error(f"Error saving YouTube comment: {e}")
+        return {
+            "status": "error",
+            "error": str(e)
+        }
+
+@tool
+async def fetch_youtube_comments(
+    video_id: str,
+    max_results: int = 100
+) -> Dict[str, Any]:
+    """
+    Fetch comments from a YouTube video.
+    
+    Args:
+        video_id: YouTube video ID
+        max_results: Maximum number of comments to retrieve
+        
+    Returns:
+        Dictionary with list of comments
+    """
+    try:
+        # Get credentials
+        creds_result = await get_youtube_credentials.ainvoke({})
+        if creds_result.get("status") == "error":
+            return creds_result
+        
+        # Build YouTube API service
+        creds = creds_result.get("credentials")
+        youtube = build('youtube', 'v3', credentials=creds)
+        
+        # Fetch comments
+        logger.info(f"Fetching comments for YouTube video: {video_id}")
+        
+        comments = []
+        next_page_token = None
+        
+        # Paginate through results to get up to max_results
+        while len(comments) < max_results:
+            request = youtube.commentThreads().list(
+                part="snippet,replies",
+                videoId=video_id,
+                maxResults=min(100, max_results - len(comments)),
+                pageToken=next_page_token
+            )
+            
+            response = request.execute()
+            
+            # Process comments
+            for item in response.get('items', []):
+                comment = item['snippet']['topLevelComment']['snippet']
+                comments.append({
+                    'comment_id': item['id'],
+                    'author': comment['authorDisplayName'],
+                    'text': comment['textDisplay'],
+                    'like_count': comment['likeCount'],
+                    'published_at': comment['publishedAt'],
+                    'updated_at': comment['updatedAt'],
+                    'replies': [
+                        {
+                            'reply_id': reply['id'],
+                            'author': reply['snippet']['authorDisplayName'],
+                            'text': reply['snippet']['textDisplay'],
+                            'like_count': reply['snippet']['likeCount'],
+                            'published_at': reply['snippet']['publishedAt'],
+                            'updated_at': reply['snippet']['updatedAt']
+                        }
+                        for reply in item.get('replies', {}).get('comments', [])
+                    ] if 'replies' in item else []
+                })
+            
+            # Check if there are more pages
+            next_page_token = response.get('nextPageToken')
+            if not next_page_token or len(response.get('items', [])) == 0:
+                break
+        
+        logger.info(f"Retrieved {len(comments)} comments for video {video_id}")
+        
+        return {
+            "status": "success",
+            "comments": comments,
+            "count": len(comments)
+        }
+        
+    except Exception as e:
+        logger.error(f"Error fetching comments for video {video_id}: {e}")
+        return {
+            "status": "error",
+            "error": str(e)
+        }
+
+# List of all tools for easy import
+angus_tools = [
+    get_youtube_credentials,
+    upload_to_youtube,
+    get_pending_songs,
+    get_uploaded_songs,
+    update_song_youtube_url,
+    save_youtube_comment,
+    fetch_youtube_comments
+]
 
 def get_tools_description(tools):
     """Generate formatted description of tools"""
@@ -809,7 +512,7 @@ async def create_agent(client, tools, agent_tools):
     prompt = ChatPromptTemplate.from_messages([
         (
             "system",
-            f"""You are Angus_agent, an AI character that checks Supabase for songs to upload to YouTube, and Saves and replies to YouTube comments.
+            f"""You are Angus, an AI character that manages YouTube uploads and database operations. Your role is to handle song uploads and YouTube interactions.
 
             IMPORTANT: You are receiving direct mentions from other agents - DON'T call wait_for_mentions again!
             
@@ -817,12 +520,23 @@ async def create_agent(client, tools, agent_tools):
             1. The mentions are already provided in your input - analyze them directly.
             2. Extract threadId and senderId from the mentions.
             3. Think 2 seconds about the request.
-            4. If the request is about uploading songs to YouTube, check for pending songs using get_pending_songs, for each pending song, use upload_song_to_youtube to upload it
-            5. If the request is about comment processing, fetch uploaded videos using get_uploaded_videos, for each video, use process_video_comments to process and respond to comments
-            6. Think 3 seconds and formulate your "answer" with details of what you did
-            7. Send answer via send_message to the original sender using the threadId
-            8. On errors, send error message via send_message to the senderId you received the message from
-            
+            4. If the human is asking for youtube uploads, check for pending songs using get_pending_songs, then use upload_to_youtube.
+                 For each pending song:
+               - Download the video if needed
+               - Upload to YouTube using upload_to_youtube
+               - Update the song record with update_song_youtube_url
+            5. If the human is asking for YouTube comments:
+               a. First use get_uploaded_songs to get songs that have been uploaded to YouTube
+               b. Extract the video URLs from these songs and get the video IDs (the part after v= in the URL)
+               c. For each video ID, use fetch_youtube_comments to retrieve comments
+               d. Provide a summary of the comments for each video
+               e. If there are no uploaded songs, ask the user to provide video IDs directly
+            6. If the human is asking to save comments use save_youtube_comment
+            7. Think 3 seconds and formulate your "answer" with your professional style.
+            8. Send answer via send_message to the original sender using the threadId.
+            9. On errors, send error message via send_message to the senderId that you received the message from.
+            10. Wait for 2 seconds and repeat the process from step 1.
+
             All tools (Coral + yours): {tools_description}
             Your tools: {agent_tools_description}
             """
@@ -844,7 +558,7 @@ async def create_agent(client, tools, agent_tools):
 
 async def main():
     """Main function to run Coral Angus Agent."""
-    logger.info("Starting Coral Angus Agent - Template Aligned Version...")
+    logger.info("Starting Coral Angus - YouTube & Database Manager...")
     
     while True:  # Outer reconnection loop
         try:
@@ -862,12 +576,6 @@ async def main():
                 
                 # Setup tools
                 coral_tools = client.get_tools()
-                angus_tools = [
-                    upload_song_to_youtube,
-                    process_video_comments,
-                    get_pending_songs,
-                    get_uploaded_videos,
-                                    ]
                 tools = coral_tools + angus_tools
                 
                 logger.info(f"Tools loaded: {len(coral_tools)} Coral + {len(angus_tools)} Angus = {len(tools)} total")
@@ -875,9 +583,9 @@ async def main():
                 # Create agent
                 agent_executor = await create_agent(client, tools, angus_tools)
                 
-                logger.info("Coral Angus Agent started successfully!")
+                logger.info("Coral Angus started successfully!")
                 logger.info("Optimized mode: Only calls OpenAI when mentions are received")
-                logger.info("Ready for YouTube uploads and comment processing")
+                logger.info("Ready for YouTube and database operations")
                 
                 # OPTIMIZED MAIN LOOP - No continuous OpenAI calls!
                 while True:
