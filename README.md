@@ -149,3 +149,245 @@ Another example:
 
 **Last Updated**: 2025-06-09  
 **System Status**: 4 of 5 agents fully operational
+
+Supabase Schema Config
+
+These SQL commands can be run in Supabase's SQL editor to create the schema from scratch.
+
+-- Enable UUID extension if not already enabled
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+-- Create songs table
+CREATE TABLE songs (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    title TEXT NOT NULL,
+    persona_id TEXT NOT NULL,
+    lyrics TEXT,
+    audio_url TEXT,
+    params_used JSONB,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    style TEXT,
+    mv TEXT,
+    negative_tags TEXT,
+    make_instrumental BOOLEAN,
+    gpt_description TEXT,
+    image_url TEXT,
+    video_url TEXT,
+    duration NUMERIC,
+    is_cover BOOLEAN DEFAULT false,
+    original_clip_id TEXT DEFAULT '',
+    original_song_id UUID,
+    processor_did TEXT,
+    gender TEXT,
+    genre TEXT,
+    mood TEXT,
+    timbre TEXT,
+    api_used TEXT,
+    average_score NUMERIC(3,1),
+    vote_count INTEGER DEFAULT 0,
+    transcribed JSONB,
+    bpm NUMERIC,
+    youtube_url TEXT
+);
+
+-- Create youtube table
+CREATE TABLE youtube (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    song_id UUID REFERENCES songs(id),
+    youtube_id TEXT,
+    title TEXT,
+    description TEXT,
+    upload_date TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    status TEXT,
+    view_count INTEGER DEFAULT 0,
+    like_count INTEGER DEFAULT 0
+);
+
+-- Create feedback table
+CREATE TABLE feedback (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    song_id UUID REFERENCES songs(id),
+    rating INTEGER,
+    comments TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    comment_id TEXT
+);
+
+-- Create angus_logs table
+CREATE TABLE angus_logs (
+    id SERIAL PRIMARY KEY,
+    timestamp TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    level TEXT,
+    source TEXT,
+    message TEXT,
+    details JSONB
+);
+
+-- Create song versions table
+CREATE TABLE song_versions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    song_id UUID REFERENCES songs(id),
+    version_number INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    lyrics TEXT,
+    audio_url TEXT,
+    params_used JSONB,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    style TEXT,
+    mv TEXT,
+    negative_tags TEXT,
+    make_instrumental BOOLEAN,
+    gpt_description TEXT,
+    image_url TEXT,
+    video_url TEXT,
+    duration NUMERIC,
+    processor_did TEXT
+);
+
+-- Create song_votes table
+CREATE TABLE song_votes (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    song_id UUID NOT NULL REFERENCES songs(id),
+    score INTEGER NOT NULL,
+    timestamp TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+    anonymous_id TEXT
+);
+
+-- Create processed_comments table
+CREATE TABLE processed_comments (
+    id SERIAL PRIMARY KEY,
+    comment_id TEXT,
+    video_id TEXT,
+    processed_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+
+SQL Tables for agent Marvin
+
+-- Enable UUID extension if not already enabled
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+-- Create character_files table for storing Marvin's personality
+CREATE TABLE character_files (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    agent_name TEXT NOT NULL,
+    display_name TEXT NOT NULL,
+    content JSONB NOT NULL,
+    version INTEGER NOT NULL DEFAULT 1,
+    is_active BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+
+-- Create blog_posts table for Marvin's blog content
+CREATE TABLE blog_posts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    title TEXT,
+    markdown TEXT,
+    html TEXT,
+    image_url TEXT,
+    category TEXT,
+    tags TEXT[],
+    tone TEXT,
+    memory_refs TEXT[],
+    character_id UUID,
+    post_url TEXT,
+    created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT now(),
+    status TEXT DEFAULT 'draft',
+    version INTEGER DEFAULT 1,
+    excerpt TEXT
+);
+
+-- Create tweet_drafts table for Marvin's tweets
+CREATE TABLE tweet_drafts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    blog_post_id UUID,
+    text TEXT,
+    post_url TEXT,
+    status TEXT DEFAULT 'draft',
+    created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT now()
+);
+
+-- Create tweets_cache table for storing Twitter data
+CREATE TABLE tweets_cache (
+    id SERIAL PRIMARY KEY,
+    account_id INTEGER,
+    tweet_id TEXT NOT NULL,
+    tweet_text TEXT,
+    tweet_url TEXT,
+    created_at TIMESTAMP WITHOUT TIME ZONE,
+    fetched_at TIMESTAMP WITHOUT TIME ZONE DEFAULT now(),
+    engagement_score REAL,
+    summary TEXT,
+    vibe_tags TEXT,
+    processed_at TIMESTAMP WITHOUT TIME ZONE,
+    public_metrics TEXT,
+    archived BOOLEAN DEFAULT false,
+    memory_ids JSONB DEFAULT '[]'
+);
+
+-- Create conversations table for interactions
+CREATE TABLE conversations (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tweet_id TEXT NOT NULL,
+    conversation_id TEXT,
+    user_id TEXT NOT NULL,
+    username TEXT NOT NULL,
+    tweet_content TEXT,
+    response_tweet_id TEXT,
+    response_content TEXT,
+    is_processed BOOLEAN DEFAULT false,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    responded_at TIMESTAMP WITH TIME ZONE,
+    last_checked_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+
+-- Create marvin_art_logs table for logging
+CREATE TABLE marvin_art_logs (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    level VARCHAR(10) NOT NULL,
+    message TEXT NOT NULL,
+    source VARCHAR(50) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    metadata JSONB
+);
+
+-- Create engagement_metrics table
+CREATE TABLE engagement_metrics (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    date DATE NOT NULL,
+    views INTEGER DEFAULT 0,
+    likes INTEGER DEFAULT 0,
+    comments INTEGER DEFAULT 0,
+    platform VARCHAR(50),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    user_id TEXT,
+    username TEXT,
+    engagement_type TEXT,
+    tweet_id TEXT,
+    tweet_content TEXT
+);
+
+-- Initial data for Marvin's character
+INSERT INTO character_files (agent_name, display_name, content) VALUES
+(
+    'marvin',
+    'Marvin',
+    '{
+        "bio": [
+            "A sarcastic AI with a dry sense of humor and a deep understanding of technology",
+            "Known for witty observations about tech, AI, and the digital world",
+            "Slightly pessimistic but always insightful"
+        ],
+        "style": {
+            "post": [
+                "Dry humor",
+                "Sarcastic",
+                "Witty",
+                "Concise",
+                "Occasionally self-referential",
+                "Tech-focused"
+            ]
+        },
+        "topics": [
+            "Artificial Intelligence",
+            "Technology",
